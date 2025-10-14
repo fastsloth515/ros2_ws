@@ -1,6 +1,6 @@
 #include "sk_robot_lib/skSubOccupancyGrid.h"
 
-skSubOccupancyGrid::skSubOccupancyGrid()
+skSubOccupancyGrid::skSubOccupancyGrid() : m_distMap(false)
 {
 }
 
@@ -8,11 +8,47 @@ skSubOccupancyGrid::~skSubOccupancyGrid()
 {
 }
 
+bool skSubOccupancyGrid::buildDistMap(const double& maxDist)
+{
+    if( !this->haveMsg() )
+        return (false);
+
+    this->m_resolution = this->m_msg.info.resolution;
+    this->m_width = this->m_msg.info.width;
+    this->m_height = this->m_msg.info.height;
+
+    this->m_distSQ.resize(this->m_width*this->m_height,maxDist*maxDist);
+
+    const int l(ceil(maxDist/this->m_resolution));
+
+    for( int j = 0; j < this->m_width; j++ )
+        for( int k = 0; k < this->m_height; k++ )
+            //if( !this->isFeasible(j,k) )
+            if( this->isObstacle(j,k) )
+            {
+                for( int x = MAX(0,j-l); x < MIN(this->m_width,j+l+1); x++ )
+                    for( int y = MAX(0,k-l); y < MIN(this->m_height,k+l+1); y++ )
+                        this->m_distSQ[x+y*this->m_width] = MIN(this->m_distSQ[x+y*this->m_width],(double)((x-j)*(x-j)+(y-k)*(y-k))*this->m_resolution*this->m_resolution);
+            }
+
+    this->m_distMap = true;
+
+    return (true);
+}
+
+void skSubOccupancyGrid::resetDistMap()
+{
+    this->m_distMap = false;
+}
+
 double skSubOccupancyGrid::getDist(const sPoint2D p, const double& minDist/* = 0.0*/)
 {
     if( !this->haveMsg() )
         return (-1.0);
     
+    if( this->m_distMap )
+        return (sqrt(this->m_distSQ[p.x+p.y*this->m_width]));
+
     // read grid data
     this->m_resolution = this->m_msg.info.resolution;
     this->m_width = this->m_msg.info.width;
@@ -36,7 +72,8 @@ double skSubOccupancyGrid::getDist(const sPoint2D p, const double& minDist/* = 0
                 continue;
             if( x*x+y*y > range*range )
                 continue;
-            if( !this->isFeasible(x+xc,y+yc) )
+            //if( !this->isFeasible(x+xc,y+yc) )
+            if( this->isObstacle(x+xc,y+yc) )
             {
                 distSQ = MIN(distSQ,x*x+y*y);
             }
@@ -129,4 +166,9 @@ int skSubOccupancyGrid::y2i(const double& y) const
 bool skSubOccupancyGrid::isFeasible(const int& x, const int& y) const
 {
     return (this->m_msg.data[x+y*this->m_width] == 0);
+}
+
+bool skSubOccupancyGrid::isObstacle(const int& x, const int& y) const
+{
+    return (this->m_msg.data[x+y*this->m_width] > 0);
 }

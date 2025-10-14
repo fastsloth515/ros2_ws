@@ -12,6 +12,7 @@
 #include "sk_robot_lib/skDynamicObstacleAvoidance.h"
 
 #define DWA_DEFAULT_RESOLUTION          (10)
+#define DWA_ACTIVATE_DIST_MAP           (1)
 
 using namespace std;
 

@@ -121,7 +121,7 @@ class BEVGridNode(Node):
         self.pub_img.publish(img_msg)
 
         # OccupancyGrid 초기화
-        grid_np = np.full((self.height, self.width), -1, dtype=np.int8)
+        grid_np = np.full((self.height, self.width), -1, dtype=np.int8) # -1(unknown) 안 가도록 하는게 나을듯?
 
         # 간단한 색 기반 마스크
         mask_obstacle = (r > 100) & (g < 80) & (b < 80) | \
@@ -146,7 +146,7 @@ class BEVGridNode(Node):
 
         occ_mask = (grid_np == 100).astype(np.uint8)
         occ_mask = cv2.morphologyEx(occ_mask, cv2.MORPH_CLOSE,
-                                    self.closing_kernel, iterations=1)
+                                    self.closing_kernel, iterations=2)
         grid_np[occ_mask > 0] = 100
 
                 # 로봇 주변 free space 확보

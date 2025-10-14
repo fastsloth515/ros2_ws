@@ -115,6 +115,12 @@ geometry_msgs::msg::Twist skDynamicWindowApproach::getTwist(const geometry_msgs:
     //if( this->p_node )
     //    RCLCPP_INFO(this->p_node->get_logger(), "[DEBUG][DWA] Resolution = [%d, %d, %d].", this->m_param.resolution_x, this->m_param.resolution_y, this->m_param.resolution_th);
 
+    // Build dist map
+#if DWA_ACTIVATE_DIST_MAP
+    if( !this->p_robot && !this->p_scan && this->p_grid )
+        this->p_grid->buildDistMap(dist2stop(this->m_param.max_vel_x, this->m_param.max_vel_x, this->m_param.acc, this->m_param.dt));
+#endif
+
     geometry_msgs::msg::Twist v_o, v;
     if( v_c.linear.x > 0.0 )
         v_o.linear.x = MAX(v_c.linear.x - this->m_param.step_size_x, 0.0);
@@ -165,6 +171,10 @@ geometry_msgs::msg::Twist skDynamicWindowApproach::getTwist(const geometry_msgs:
     }
     //this->cost(v_d, v_o, true);
     //RCLCPP_INFO(this->p_robot->get_logger(), "[DEBUG][DWA] v : [%.2f, %.2f] - > [%.2f, %.2f], cost = [%.4f, %.4f].", v_d.linear.x, v_d.angular.z*RAD2DEG, v_o.linear.x, v_o.angular.z*RAD2DEG, this->distTwist(v_d,v_o), cost_o);
+#if DWA_ACTIVATE_DIST_MAP
+    if( !this->p_robot && !this->p_scan && this->p_grid )
+        this->p_grid->resetDistMap();
+#endif
 
     return (v_o);
 }
