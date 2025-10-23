@@ -1,4 +1,0 @@
-<launch>
-  <!-- Run Test -->
-  <node pkg="sub_test" exec="run_test" name="run_test"/>
-</launch>
