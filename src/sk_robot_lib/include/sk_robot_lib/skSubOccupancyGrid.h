@@ -15,6 +15,9 @@ private:
     double m_x;
     double m_y;
 
+    std::vector<double> m_distSQ;
+    bool m_distMap;
+
 public:
     skSubOccupancyGrid();
 
@@ -22,11 +25,14 @@ public:
 
     double getDist(const sPoint2D p, const double& minDist = -1.0);
     double getVoronoi(const double& height) const;
+    bool buildDistMap(const double& maxDist);
+    void resetDistMap();
 
 private:
     int x2i(const double& x) const;
     int y2i(const double& y) const;
     bool isFeasible(const int& x, const int& y) const;
+    bool isObstacle(const int& x, const int& y) const;
 };
 
 #endif // _SK_ROBOT_LIB_SUB_OCCUPANCY_GRID_H_

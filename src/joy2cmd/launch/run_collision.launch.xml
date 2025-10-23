@@ -1,8 +1,8 @@
 <launch>
-  <!-- Run RPLidar 
+  <!-- Run RPLidar
   <node pkg="sllidar_ros2" exec="sllidar_node" name="sllidar_node">
     <param from="$(find-pkg-share joy2cmd)/param/rplidar.param.yaml" />
-  </node> -->
+  </node>-->
 
   <!-- Run scan 2 grid 
   <node pkg="sub_test" exec="run_scan2grid" name="scan2grid"/>-->

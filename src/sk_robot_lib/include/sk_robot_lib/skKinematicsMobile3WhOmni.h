@@ -12,7 +12,8 @@
 using namespace std;
 
 // Kibot Kinematic Parameters
-#define KIBOT_WHEEL_ARM                                    (0.058+0.015)
+//#define KIBOT_WHEEL_ARM                                    (0.058+0.015)
+#define KIBOT_WHEEL_ARM                                    (0.125)
 //#define KIBOT_WHEEL_RADIUS                                 (0.058*0.5)
 #define KIBOT_WHEEL_OFFSET                                 (60.0*DEG2RAD)
 #define KIBOT_WHEEL_STEP                                   (120.0*DEG2RAD)

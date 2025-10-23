@@ -114,7 +114,7 @@ public:
             this->p_avoidance = new skDynamicWindowApproach();
             skDynamicObstacleAvoidanceParam param;
             param.radius = this->declare_parameter("collision_radius", 0.3);
-            param.margin = this->declare_parameter("collision_marign", 0.1);
+            param.margin = this->declare_parameter("collision_margin", 0.1);
 
             param.max_vel_x = this->m_max_linear_vel;
             param.max_vel_y = this->m_max_side_vel;
@@ -193,7 +193,7 @@ public:
             this->m_cmd_d = this->p_subCmd->getMsg();
         }
         //RCLCPP_INFO(this->get_logger(), "[DEBUG][Joy2Cmd] twist_d = [%.2f, %.2f, %.1f].", this->m_cmd_d.linear.x, this->m_cmd_d.linear.y, this->m_cmd_d.angular.z*RAD2DEG);
-# if 1 // for debugging
+# if 0 // for debugging
         this->m_cmd_d.linear.x = this->m_max_linear_vel;
         this->m_cmd_d.linear.y = 0.0;
         this->m_cmd_d.angular.z = this->m_max_angular_vel;
