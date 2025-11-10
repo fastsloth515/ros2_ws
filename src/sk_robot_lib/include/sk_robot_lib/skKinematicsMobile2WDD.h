@@ -53,7 +53,7 @@ public:
 
     bool setCmd(const geometry_msgs::msg::Twist& cmd);
 
-    geometry_msgs::msg::Twist getTwist(const double* position);
+    geometry_msgs::msg::Twist getTwist(const double* position, const bool init = false);
 
     void setAngularFirstMode(const double& maxAngularVelocity);
     void releaseAngularFirstMode();

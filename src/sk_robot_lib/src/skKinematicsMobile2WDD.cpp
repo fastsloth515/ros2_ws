@@ -138,7 +138,7 @@ bool skKinematicsMobile2WDD::setCmd(const geometry_msgs::msg::Twist& cmd)
     return (true);
 }
 
-geometry_msgs::msg::Twist skKinematicsMobile2WDD::getTwist(const double *position)
+geometry_msgs::msg::Twist skKinematicsMobile2WDD::getTwist(const double* position, const bool init/* = false*/)
 {
     double dt[2];
     geometry_msgs::msg::Twist odom;

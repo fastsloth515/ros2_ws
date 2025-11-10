@@ -4,12 +4,14 @@ skKinematicsMobile3WhOmni::skKinematicsMobile3WhOmni()
 {
     this->m_number_of_motor = 3;
     this->m_motor_velocity.resize(3,0.0);
+    this->m_motor_position.resize(3,0.0);
 }
 
 skKinematicsMobile3WhOmni::skKinematicsMobile3WhOmni(const string name)
 {
     this->m_number_of_motor = 3;
     this->m_motor_velocity.resize(3,0.0);
+    this->m_motor_position.resize(3,0.0);
     this->initialize(name);
 }
 
@@ -86,7 +88,7 @@ bool skKinematicsMobile3WhOmni::setCmd(const geometry_msgs::msg::Twist& cmd)
     return (true);
 }
 
-geometry_msgs::msg::Twist skKinematicsMobile3WhOmni::getTwist(const double *position)
+geometry_msgs::msg::Twist skKinematicsMobile3WhOmni::getTwist(const double* position, const bool init/* = false*/)
 {
     geometry_msgs::msg::Twist odom;
     odom.linear.x = 0.0;
@@ -95,6 +97,14 @@ geometry_msgs::msg::Twist skKinematicsMobile3WhOmni::getTwist(const double *posi
     odom.angular.x = 0.0;
     odom.angular.y = 0.0;
     odom.angular.z = 0.0;
+
+    if( init )
+    {
+        for( unsigned int j = 0; j < 3; j++ )
+            this->m_motor_position[j] = position[j];
+        
+        return (odom);
+    }
 
     double diff[3];
     for( unsigned int j = 0; j < 3; j++ )

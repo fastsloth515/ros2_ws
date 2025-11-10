@@ -10,6 +10,9 @@ import pycuda.autoinit
 import pycuda.gpuarray as gpuarray
 from pycuda.compiler import SourceModule
 from rclpy.qos import qos_profile_sensor_data
+# 상단 import에 추가
+from visualization_msgs.msg import Marker
+
 
 KERNEL_CODE = """
 __global__ void bev_kernel(
@@ -64,6 +67,7 @@ class BEVGridNode(Node):
         # Publishers
         self.pub_img = self.create_publisher(Image, '/bev/image', 10)
         self.pub_occ = self.create_publisher(OccupancyGrid, '/bev/occupancy_grid', 10)
+        self.pub_marker = self.create_publisher(Marker, '/bev/marker', 10)  # ← 추가
 
         self.bridge = CvBridge()
         self.closing_kernel = np.ones((closing_kernel_size, closing_kernel_size), np.uint8)
@@ -121,7 +125,7 @@ class BEVGridNode(Node):
         self.pub_img.publish(img_msg)
 
         # OccupancyGrid 초기화
-        grid_np = np.full((self.height, self.width), 100, dtype=np.int8) # -1(unknown) 안 가도록 하는게 나을듯?
+        grid_np = np.full((self.height, self.width), -1, dtype=np.int8) # -1(unknown) 안 가도록 하는게 나을듯?
 
         # 간단한 색 기반 마스크
         mask_obstacle = (r > 100) & (g < 80) & (b < 80) | \
@@ -177,6 +181,32 @@ class BEVGridNode(Node):
         occ.info.origin.orientation.w = 1.0
         occ.data = grid_np.flatten().tolist()
         self.pub_occ.publish(occ)
+
+                # ====== Marker publish: 로봇 기준 정면 2m 지점 ======
+        marker = Marker()
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.header.frame_id = "base_link"     # 로봇 좌표계 기준
+        marker.ns = "bev_debug"
+        marker.id = 0
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+
+        marker.pose.position.x = 2.0             # 정면(+x) 2 m
+        marker.pose.position.y = 0.0             # 좌우(+y) 0 m (정중앙)
+        marker.pose.position.z = 0.0
+        marker.pose.orientation.w = 1.0
+
+        marker.scale.x = 0.2
+        marker.scale.y = 0.2
+        marker.scale.z = 0.2
+        marker.color.r = 0.0
+        marker.color.g = 1.0
+        marker.color.b = 0.2
+        marker.color.a = 1.0
+
+        # RViz에서 자동 소멸되지 않도록 수명 0
+        marker.lifetime.sec = 0
+        self.pub_marker.publish(marker)
 
         self.get_logger().info(f"Published BEV + OccupancyGrid | Points: {num_points}")
 

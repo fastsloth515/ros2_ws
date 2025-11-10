@@ -48,7 +48,7 @@ public:
 
     void initOdom(const double* position);
     geometry_msgs::msg::Twist getOdom(const double*position);
-    virtual geometry_msgs::msg::Twist getTwist(const double*position) = 0;
+    virtual geometry_msgs::msg::Twist getTwist(const double* position, const bool init = false) = 0;
     void updatePose();
 
     virtual void setAngularFirstMode(const double& maxAngularVelocity);

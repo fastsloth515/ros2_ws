@@ -21,7 +21,7 @@ public:
     Dwa2Go2Node() : Node("dwa2go2_node"), sport_client_(this) {
         // Subscribe to /cmd (Twist)
         sub_cmd_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            "/cmd_vel", 10,
+            "/cmd", 10,
             std::bind(&Dwa2Go2Node::cmdCallback, this, std::placeholders::_1));
 
         // Subscribe to Go2 HighState (optional, for feedback/debug)

@@ -68,8 +68,7 @@ void skRobot::controller()
             this->m_cmd_d = this->p_cmd->getMsg();
         }
     }
-    RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] cmd_d = [%.2f, %.2f, %.1f].", this->m_cmd_d.linear.x, this->m_cmd_d.linear.y, this->m_cmd_d.angular.z);
-    //RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] Read desired command.");
+    //RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] cmd_d = [%.2f, %.2f, %.1f].", this->m_cmd_d.linear.x, this->m_cmd_d.linear.y, this->m_cmd_d.angular.z);
 
     // Check collision Avoidance
     //RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] Before twist_d = [%.2f, %.2f, %.1f].", this->m_cmd_d.linear.x, this->m_cmd_d.linear.y, this->m_cmd_d.angular.z*RAD2DEG);
@@ -92,24 +91,24 @@ void skRobot::controller()
 
     // Update vel and acc constratints, copy cmd_d to cmd_c
     this->updateCurrentFromDesiredTwist();
-    RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] cmd_c = [%.2f, %.2f, %.1f].", this->m_cmd_c.linear.x, this->m_cmd_c.linear.y, this->m_cmd_c.angular.z*RAD2DEG);
+    //RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] cmd_c = [%.2f, %.2f, %.1f].", this->m_cmd_c.linear.x, this->m_cmd_c.linear.y, this->m_cmd_c.angular.z*RAD2DEG);
 
     if( this->p_solver )
     {
         this->p_solver->setCmd(this->m_cmd_c);
         this->p_solver->getVel(this->p_motor_vel);
-        RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] wheel_vel_desired = [%.2f, %.2f].", this->p_motor_vel[0]*RAD2DEG, this->p_motor_vel[1]*RAD2DEG);
+        //RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] wheel_vel_desired = [%.2f, %.2f].", this->p_motor_vel[0]*RAD2DEG, this->p_motor_vel[1]*RAD2DEG);
     }
 
-    if( this->p_servo )
+    if( this->p_servo && this->p_solver )
     {
         // Publish Odom
-        if( (this->p_pubOdom || this->p_tf_broadcaster) && this->p_solver )
+        if( this->p_pubOdom || this->p_tf_broadcaster )
         {
             this->p_servo->getPosition(this->p_motor_pos);
-            //geometry_msgs::msg::Twist twist(this->p_solver->getOdom(this->p_motor_pos));
             geometry_msgs::msg::Twist twist(this->p_solver->getTwist(this->p_motor_pos));
-            const double th(twist.angular.z*this->m_control_dt*1.0+yaw(this->m_odom.pose.pose.orientation));
+            //RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] twist = [%.2f, %.2f, %.1f].", twist.linear.x, twist.linear.y, twist.angular.z*RAD2DEG);
+            const double th(twist.angular.z+yaw(this->m_odom.pose.pose.orientation));
             if( this->p_pubOdom )
             {
                 this->m_odom.twist.twist.linear.x = twist.linear.x;

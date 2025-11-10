@@ -30,7 +30,7 @@ bool skKinematicsMobilePass::setCmd(const geometry_msgs::msg::Twist& cmd)
     return (true);
 }
 
-geometry_msgs::msg::Twist skKinematicsMobilePass::getTwist(const double *position)
+geometry_msgs::msg::Twist skKinematicsMobilePass::getTwist(const double *position, const bool init/* = false*/)
 {
     geometry_msgs::msg::Twist odom;
 

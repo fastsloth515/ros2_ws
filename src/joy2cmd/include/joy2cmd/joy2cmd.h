@@ -114,7 +114,7 @@ public:
             this->p_avoidance = new skDynamicWindowApproach();
             skDynamicObstacleAvoidanceParam param;
             param.radius = this->declare_parameter("collision_radius", 0.3);
-            param.margin = this->declare_parameter("collision_margin", 0.1);
+            param.margin = this->declare_parameter("collision_marign", 0.1);
 
             param.max_vel_x = this->m_max_linear_vel;
             param.max_vel_y = this->m_max_side_vel;
@@ -193,10 +193,10 @@ public:
             this->m_cmd_d = this->p_subCmd->getMsg();
         }
         //RCLCPP_INFO(this->get_logger(), "[DEBUG][Joy2Cmd] twist_d = [%.2f, %.2f, %.1f].", this->m_cmd_d.linear.x, this->m_cmd_d.linear.y, this->m_cmd_d.angular.z*RAD2DEG);
-# if 0 // for debugging
+# if 1 // for debugging
         this->m_cmd_d.linear.x = this->m_max_linear_vel;
         this->m_cmd_d.linear.y = 0.0;
-        this->m_cmd_d.angular.z = this->m_max_angular_vel;
+        //this->m_cmd_d.angular.z = this->m_max_angular_vel*0.1;
 #endif
         // Check collision
         if( this->p_avoidance )
@@ -205,9 +205,13 @@ public:
             this->m_cmd = this->p_avoidance->getTwist(this->m_cmd_d, this->m_cmd);
             //RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] After  twist_d = [%.2f, %.2f, %.1f].", this->m_cmd_d.linear.x, this->m_cmd_d.linear.y, this->m_cmd_d.angular.z*RAD2DEG);
 #if JOY2CMD_PUBLISH_TF_4_DEBUGGING
-            double dx(dist2stop(this->m_cmd_d.linear.x, this->m_max_linear_vel, 1.0, 0.05));
-            double dy(dist2stop(this->m_cmd_d.linear.y, this->m_max_side_vel, 1.0, 0.05));
-            double th(dist2stop(this->m_cmd_d.angular.z, this->m_max_angular_vel, 1.0, 0.05));
+            //double dx(dist2stop(this->m_cmd_d.linear.x, this->m_max_linear_vel, 1.0, 0.05));
+            //double dy(dist2stop(this->m_cmd_d.linear.y, this->m_max_side_vel, 1.0, 0.05));
+            //double th(dist2stop(this->m_cmd_d.angular.z, this->m_max_angular_vel, 1.0, 0.05));
+            const double t(2.0);
+            double dx(this->m_cmd_d.linear.x*t);
+            double dy(this->m_cmd_d.linear.y*t);
+            double th(this->m_cmd_d.angular.z*t);
             this->m_t_d.transform.translation.x = dx*cos(th) - dy*sin(th);
             this->m_t_d.transform.translation.y = dx*sin(th) + dy*cos(th);
             this->m_t_d.transform.rotation.x = 0.0;
@@ -216,10 +220,13 @@ public:
             this->m_t_d.transform.rotation.w = cos(0.5*th);
             this->m_t_d.header.stamp = this->get_clock()->now();
             this->tf_broadcaster_d->sendTransform(this->m_t_d);
-            //RCLCPP_INFO(this->get_logger(), "[DEBUG][skRobot::controller()] pose_d = [%.2f, %.2f, %.1f].", dx, dy, th*RAD2DEG);
-            dx = dist2stop(this->m_cmd.linear.x, this->m_max_linear_vel, 1.0, 0.05);
-            dy = dist2stop(this->m_cmd.linear.y, this->m_max_side_vel, 1.0, 0.05);
-            th = dist2stop(this->m_cmd.angular.z, this->m_max_angular_vel, 1.0, 0.05);
+            RCLCPP_INFO(this->get_logger(), "[DEBUG][joy2cmd] pose_d = [%.2f, %.2f, %.1f].", dx, dy, th*RAD2DEG);
+            //dx = dist2stop(this->m_cmd.linear.x, this->m_max_linear_vel, 1.0, 0.05);
+            //dy = dist2stop(this->m_cmd.linear.y, this->m_max_side_vel, 1.0, 0.05);
+            //th = dist2stop(this->m_cmd.angular.z, this->m_max_angular_vel, 1.0, 0.05);
+            dx = (this->m_cmd.linear.x*t);
+            dy = (this->m_cmd.linear.y*t);
+            th = (this->m_cmd.angular.z*t);
             this->m_t_c.transform.translation.x = dx*cos(th) - dy*sin(th);
             this->m_t_c.transform.translation.y = dx*sin(th) + dy*cos(th);
             this->m_t_c.transform.rotation.x = 0.0;
@@ -228,7 +235,7 @@ public:
             this->m_t_c.transform.rotation.w = cos(0.5*th);
             this->m_t_c.header.stamp = this->get_clock()->now();
             this->tf_broadcaster_c->sendTransform(this->m_t_c);
-            //RCLCPP_INFO(this->get_logger(), "[DEBUG][joy2cmd] pose_c = [%.2f, %.2f, %.1f].", dx, dy, th*RAD2DEG);
+            RCLCPP_INFO(this->get_logger(), "[DEBUG][joy2cmd] pose_c = [%.2f, %.2f, %.1f].", dx, dy, th*RAD2DEG);
 #endif
         }
         else

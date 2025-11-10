@@ -42,7 +42,7 @@ public:
 
     bool setCmd(const geometry_msgs::msg::Twist& cmd);
 
-    geometry_msgs::msg::Twist getTwist(const double*position);
+    geometry_msgs::msg::Twist getTwist(const double* position, const bool init = false);
 };
 
 #endif //_SK_ROBOT_LIB_KINEMATICS_MOBILE_OMNI_H_

@@ -114,8 +114,47 @@ geometry_msgs::msg::Twist skDynamicWindowApproach::getTwist(const geometry_msgs:
 
     //if( this->p_node )
     //    RCLCPP_INFO(this->p_node->get_logger(), "[DEBUG][DWA] Resolution = [%d, %d, %d].", this->m_param.resolution_x, this->m_param.resolution_y, this->m_param.resolution_th);
-
     // Build dist map
+
+#if 1 // vorronoi like method
+    const double t(2.0);
+    const double th(v_d.angular.z*t*0.5);
+    const double x(MAX(0.5,v_d.linear.x*t*cos(th)-v_d.linear.y*t*sin(th)));
+    const double y(v_d.linear.x*t*sin(th)+v_d.linear.y*t*cos(th));
+    int flag;
+    geometry_msgs::msg::Twist ret;
+    ret.linear.x = 0.0;
+    ret.linear.y = 0.0;
+    ret.linear.z = 0.0;
+    ret.angular.x = 0.0;
+    ret.angular.y = 0.0;
+    ret.angular.z = 0.0;
+
+    // Rotate in position motion
+    if( fabs(v_d.linear.x) < 0.05 || fabs(v_d.angular.z) > 30.0*RAD2DEG )
+    {
+    	//RCLCPP_INFO(this->p_node->get_logger(), "[DEBUG][DWA] v_d = %.4f", v_d.linear.x);
+        ret.angular.z = v_d.angular.z;
+        return (ret);
+    }
+
+    //double yg = this->p_grid->getVoronoi(x, y, flag);
+    double yg = this->p_grid->getVoronoi(2.0, 0.0, flag);
+    //RCLCPP_INFO(this->p_node->get_logger(), "[DEBUG][DWA] (x,y)) = (%.2f, %.2f) = (%d, %d), Flag = %d, y = %.2f.", x, y, this->p_grid->x2i(x), this->p_grid->y2i(y), flag, yg);
+    if( flag > 0 )
+    {
+        ret.linear.x = v_d.linear.x;
+        ret.angular.z = atan2(yg,x) / t;
+    }
+    else if( flag == 0 )
+    {
+        ret.linear.x = 0.0;
+        ret.angular.z = v_d.angular.z;
+    }
+
+    return (ret);    
+#endif
+
 #if DWA_ACTIVATE_DIST_MAP
     if( !this->p_robot && !this->p_scan && this->p_grid )
         this->p_grid->buildDistMap(dist2stop(this->m_param.max_vel_x, this->m_param.max_vel_x, this->m_param.acc, this->m_param.dt)+this->m_param.radius*2.0+this->m_param.margin*2.0);

@@ -24,11 +24,11 @@ public:
     ~skSubOccupancyGrid();
 
     double getDist(const sPoint2D p, const double& minDist = -1.0);
-    double getVoronoi(const double& height) const;
     bool buildDistMap(const double& maxDist);
+    double getVoronoi(const double& x, const double& y, int& flag);
     void resetDistMap();
 
-private:
+//private:
     int x2i(const double& x) const;
     int y2i(const double& y) const;
     bool isFeasible(const int& x, const int& y) const;
