@@ -45,7 +45,7 @@ class BEVGridNode(Node):
         self.declare_parameter("height", 80)
         self.declare_parameter("origin_x", 0.0)
         self.declare_parameter("origin_y", -2.0)
-        self.declare_parameter("dx", -0.6)
+        self.declare_parameter("dx", -0.7)
         self.declare_parameter("dy", 0.0)
         self.declare_parameter("closing_kernel_size", 1)
 
@@ -90,26 +90,16 @@ class BEVGridNode(Node):
         if cloud_arr.shape[0] == 0:
             return
 
-        # >>> 여기 offset 수정 <<<
-        x = np.frombuffer(cloud_arr[:, 0:4].tobytes(),  dtype=np.float32)
-        y = np.frombuffer(cloud_arr[:, 4:8].tobytes(),  dtype=np.float32)
-        z = np.frombuffer(cloud_arr[:, 8:12].tobytes(), dtype=np.float32)
-        rgb_float = np.frombuffer(cloud_arr[:, 12:16].tobytes(), dtype=np.float32)
-
+        # Extract xyzrgb
+        x = np.frombuffer(cloud_arr[:,0:4].tobytes(), dtype=np.float32)
+        y = np.frombuffer(cloud_arr[:,4:8].tobytes(), dtype=np.float32)
+        z = np.frombuffer(cloud_arr[:,8:12].tobytes(), dtype=np.float32)
+        rgb_float = np.frombuffer(cloud_arr[:,16:20].tobytes(), dtype=np.float32)
         rgb_int = rgb_float.view(np.uint32)
         r = ((rgb_int >> 16) & 0xFF).astype(np.uint8)
-        g = ((rgb_int >> 8)  & 0xFF).astype(np.uint8)
-        b = ( rgb_int        & 0xFF).astype(np.uint8)
-
+        g = ((rgb_int >> 8) & 0xFF).astype(np.uint8)
+        b = (rgb_int & 0xFF).astype(np.uint8)
         num_points = len(x)
-
-        # 안전 체크 (디버깅용)
-        if len(r) != num_points:
-            self.get_logger().error(
-                f"RGB length mismatch: num_points={num_points}, len(r)={len(r)}"
-            )
-            return
-
 
         # CUDA BEV image
         x_gpu, y_gpu, z_gpu = gpuarray.to_gpu(x), gpuarray.to_gpu(y), gpuarray.to_gpu(z)

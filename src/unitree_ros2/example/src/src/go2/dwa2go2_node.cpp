@@ -66,7 +66,6 @@ private:
             sport_client_.StopMove(req_);
             RCLCPP_WARN(this->get_logger(),
                         "No /cmd for %.2f s → StopMove sent", elapsed);
-            // 여기서는 last_cmd_time_ 갱신하지 않는 게 더 자연스럽습니다.
         }
     }
 
