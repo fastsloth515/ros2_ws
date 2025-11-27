@@ -49,19 +49,22 @@ class DWACommandNode(Node):
         self.declare_parameter("w_goal", 0.8)     # 목표(dx,dy) 비중
         self.declare_parameter("w_clear", 1.5)    # 장애물 거리/클리어런스 비중
         self.declare_parameter("y_bias", -0.4)     # 자꾸 왼쪽으로 가서///
+        # -------------------- 사람(occ=88) 정지 거리 --------------------
+        self.declare_parameter("person_stop_dist", 1.5)  # [m], 이 거리 안에 사람(88)이 있으면 정지
+
 
 
         # -------------------- 검사 창(Window) --------------------
-        self.declare_parameter("ahead_m", 2.3)             # 전방 길이[m]
+        self.declare_parameter("ahead_m", 2.0)             # 전방 길이[m]
         self.declare_parameter("half_width_m", 1.2)        # 좌우 반폭[m]
-        self.declare_parameter("stride", 2)                # 셀 스킵 간격 2면 1칸 건너뛰기
+        self.declare_parameter("stride", 1)                # 셀 스킵 간격 2면 1칸 건너뛰기
 
         # unknown 처리 (초기 관측전 출발성 확보 위해 기본 False 권장)
         self.declare_parameter("unknown_is_obstacle", False) # unknown 구역도 감
 
         # -------------------- 속도 생성 파라미터 --------------------
         self.declare_parameter("kv", 0.6)                  # 거리→전진속도 게인
-        self.declare_parameter("kyaw", 1.1)                # 각도→회전속도 게인
+        self.declare_parameter("kyaw", 1.0)                # 각도→회전속도 게인
         self.declare_parameter("v_max", 0.7)               # 전진 최대[m/s]
         self.declare_parameter("w_max", 0.75)              # 회전 최대[rad/s]
         self.declare_parameter("v_min", 0.0)               # 전진 최소[m/s]
@@ -97,6 +100,8 @@ class DWACommandNode(Node):
         self.w_goal  = float(self.get_parameter("w_goal").value)
         self.w_clear = float(self.get_parameter("w_clear").value)
         self.y_bias  = float(self.get_parameter("y_bias").value)
+        self.person_stop_dist = float(self.get_parameter("person_stop_dist").value)
+
 
         self.ahead_m      = float(self.get_parameter("ahead_m").value)
         self.half_width_m = float(self.get_parameter("half_width_m").value)
@@ -329,12 +334,37 @@ class DWACommandNode(Node):
         i_end   = min(H, i0 + int(self.half_width_m / res) + 1)
         if j_start >= j_end or i_start >= i_end:
             return
+        step = max(1, self.stride)
+
+        # ---------- (1) 사람(occ == 88) 근접 시 정지 ----------
+        person_stop_m = self.person_stop_dist
+        person_close = False
+
+        for i in range(i_start, i_end, step):
+            for j in range(j_start, j_end, step):
+                occ_ij = int(self._occ[i, j])
+                if occ_ij == 88:
+                    # 해당 셀의 로봇 기준 좌표 (x: 전방+, y: 좌+)
+                    x_cell = j * res + x0
+                    y_cell = i * res + y0
+                    dist   = math.hypot(x_cell, y_cell)
+
+                    if dist <= person_stop_m:
+                        person_close = True
+                        break
+            if person_close:
+                break
+
+        if person_close:
+            self._publish_stop(f"person_occ88_within_{person_stop_m:.2f}m")
+            return
+
 
         # ------ 최소 코스트 셀 탐색 ------
         best = None
         best_occ = None  # 최종 선택 셀의 occupancy 저장
-        step = max(1, self.stride)
-        m = max(1e-6, self.margin)   # 지금은 쓰지 않아도 OK (soft clearance 원하면 사용)
+
+        m = max(1e-6, self.margin)   
 
         for i in range(i_start, i_end, step):
             y = i * res + y0

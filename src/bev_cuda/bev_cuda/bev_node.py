@@ -134,8 +134,8 @@ class BEVGridNode(Node):
         grid_np = np.full((self.height, self.width), 100, dtype=np.int8) # -1(unknown) 안 가도록 하는게 나을듯?
 
         # 간단한 색 기반 마스크
-        mask_obstacle = (r > 100) & (g < 80) & (b < 80) | \
-                        ((b > 100) & (r < 80) & (g < 80))  # red,blue
+        mask_obstacle = (r > 100) & (g < 80) & (b < 80) # red
+        mask_person = (b > 100) & (r < 80) & (g < 80)  # blue
         mask_free     = (g > 100) & (r < 80) & (b < 80)    # green
         mask_avoid    = (r > 200) & (g > 200) & (b > 200)  # white
 
@@ -149,6 +149,8 @@ class BEVGridNode(Node):
 
         grid_np[i_grid[mask_obstacle & valid_mask],
                 j_grid[mask_obstacle & valid_mask]] = 100
+        grid_np[i_grid[mask_person & valid_mask],
+                j_grid[mask_person & valid_mask]] = 88
         grid_np[i_grid[mask_avoid & valid_mask],
                 j_grid[mask_avoid & valid_mask]] = 70
         grid_np[i_grid[mask_free & valid_mask],
