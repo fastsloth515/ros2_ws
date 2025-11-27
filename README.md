@@ -2,7 +2,7 @@
 
 ## 1. RealSense 카메라 노드
 
-RealSense D435/D455 카메라의 RGB·Depth 스트림을 출력하고 Depth–Color 정렬을 수행하는 노드
+RealSense 카메라의 RGB·Depth 스트림을 출력하고 Depth–Color 정렬을 수행하는 노드
 
 실행 명령:
 
@@ -16,7 +16,7 @@ ros2 launch realsense2_camera rs_launch.py \
 
 ## 2. Segmentation 노드 (jetson_quantization-master)
 
-TensorRT로 최적화된 세그멘테이션 모델을 실행해 실시간 클래스 마스크를 생성하는 패키지
+TensorRT로 최적화된 세그멘테이션 모델을 실행해 실시간 클래스 마스크 생성
 
 실행 명령:
 
@@ -41,7 +41,7 @@ ros2 launch bev_cuda bev.launch.py
 
 ## 5. GPS 기반 Global Planner (gps_nav)
 
-RTK-GPS 위치와 로봇 오도메트리를 기반으로 전역 목표 위치를 계산하고 /dxdy를 퍼블리시하는 글로벌 플래너 패키지
+RTK-GPS 위치와 로봇 오도메트리를 기반으로 전역 목표 위치를 계산하고 /dxdy를 퍼블리시하는 global planner 패키지
 
 실행 명령:
 
@@ -50,7 +50,7 @@ ros2 run gps_nav planner_server
 
 ## 6. DWA Local Planner (dwa_nav)
 
-BEV Occupancy Grid를 기반으로 장애물 회피 경로를 계산해 속도 명령(/cmd)을 생성하는 로컬 플래너 패키지
+BEV Occupancy Grid를 기반으로 장애물 회피 경로를 계산해 속도 명령(/cmd)을 생성하는 local planner 패키지
 
 실행 명령:
 
