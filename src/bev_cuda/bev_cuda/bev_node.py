@@ -103,7 +103,7 @@ class BEVGridNode(Node):
 
         num_points = len(x)
 
-        # 안전 체크 (디버깅용)
+        # Debbuging log
         if len(r) != num_points:
             self.get_logger().error(
                 f"RGB length mismatch: num_points={num_points}, len(r)={len(r)}"
@@ -130,10 +130,10 @@ class BEVGridNode(Node):
         img_msg = self.bridge.cv2_to_imgmsg(bev, encoding="bgr8")
         self.pub_img.publish(img_msg)
 
-        # OccupancyGrid 초기화
+        # OccupancyGrid 100으로 초기화
         grid_np = np.full((self.height, self.width), 100, dtype=np.int8) # -1(unknown) 안 가도록 하는게 나을듯?
 
-        # 간단한 색 기반 마스크
+        # 색 기반 마스크
         mask_obstacle = (r > 100) & (g < 80) & (b < 80) # red
         mask_person = (b > 100) & (r < 80) & (g < 80)  # blue
         mask_free     = (g > 100) & (r < 80) & (b < 80)    # green
@@ -148,20 +148,20 @@ class BEVGridNode(Node):
                      (j_grid >= 0) & (j_grid < self.width)
 
         grid_np[i_grid[mask_obstacle & valid_mask],
-                j_grid[mask_obstacle & valid_mask]] = 100
+                j_grid[mask_obstacle & valid_mask]] = 100   #장애물
         grid_np[i_grid[mask_person & valid_mask],
-                j_grid[mask_person & valid_mask]] = 88
+                j_grid[mask_person & valid_mask]] = 88      #사람
         grid_np[i_grid[mask_avoid & valid_mask],
-                j_grid[mask_avoid & valid_mask]] = 70
+                j_grid[mask_avoid & valid_mask]] = 70       #연석
         grid_np[i_grid[mask_free & valid_mask],
-                j_grid[mask_free & valid_mask]] = 0
+                j_grid[mask_free & valid_mask]] = 0         #feasible 
 
         occ_mask = (grid_np == 100).astype(np.uint8)
         occ_mask = cv2.morphologyEx(occ_mask, cv2.MORPH_CLOSE,
                                     self.closing_kernel, iterations=3)
         grid_np[occ_mask > 0] = 100
 
-                # 로봇 주변 free space 확보
+        # 로봇 주변 free space
         # robot_radius = 0.5  # m
         # j_robot = int((0.0 - self.origin_x) / self.res)
         # i_robot = int((0.0 - self.origin_y) / self.res)
@@ -177,7 +177,6 @@ class BEVGridNode(Node):
         # grid_np[i_min:i_max, j_min:j_max] = 0
         # 메시지로 publish
 
-        # 메시지로 publish
         occ = OccupancyGrid()
         occ.header.stamp = self.get_clock().now().to_msg()
         occ.header.frame_id = "base_link"

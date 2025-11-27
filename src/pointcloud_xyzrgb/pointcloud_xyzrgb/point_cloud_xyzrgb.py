@@ -134,7 +134,7 @@ class PointCloudGPUNode(Node):
         try:
             t0 = time.time()
 
-            # ---- 1) depth → numpy (단위 보정 포함) ----
+            # ---- 1) depth → numpy ----
             depth_np = self.bridge.imgmsg_to_cv2(
                 depth_msg, desired_encoding="passthrough"
             )
@@ -163,7 +163,7 @@ class PointCloudGPUNode(Node):
 
             t1 = time.time()
 
-            # ---- 4) GPU 커널 호출 ----
+            # ---- 4) GPU kernel ----
             range_max = float(
                 self.get_parameter("range_max").get_parameter_value().double_value
             )
@@ -181,7 +181,7 @@ class PointCloudGPUNode(Node):
 
             t2 = time.time()
 
-            # ---- 5) 다운샘플 (stride) ----
+            # ---- 5) stride ----
             stride = int(
                 self.get_parameter("stride")
                 .get_parameter_value()
@@ -203,7 +203,7 @@ class PointCloudGPUNode(Node):
                 self.get_logger().warn("No valid points within range_max; skip frame.")
                 return
 
-            # ---- 6) numpy → PointCloud2 (비조직) ----
+            # ---- 6) numpy → PointCloud2  ----
             cloud_msg = self.cloud4_to_pointcloud2_unorganized(
                 depth_msg.header, kept
             )

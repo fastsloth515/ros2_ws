@@ -330,28 +330,28 @@ class DWACommandNode(Node):
             return
         step = max(1, self.stride)
 
-        # ---------- (1) 사람(occ == 88) 근접 시 정지 ----------
-        person_stop_m = self.person_stop_dist
-        person_close = False
+        # # ---------- (1) 사람(occ == 88) 근접 시 정지 ----------
+        # person_stop_m = self.person_stop_dist
+        # person_close = False
 
-        for i in range(i_start, i_end, step):
-            for j in range(j_start, j_end, step):
-                occ_ij = int(self._occ[i, j])
-                if occ_ij == 88:
-                    # 해당 셀의 로봇 기준 좌표 (x: 전방+, y: 좌+)
-                    x_cell = j * res + x0
-                    y_cell = i * res + y0
-                    dist   = math.hypot(x_cell, y_cell)
+        # for i in range(i_start, i_end, step):
+        #     for j in range(j_start, j_end, step):
+        #         occ_ij = int(self._occ[i, j])
+        #         if occ_ij == 88:
+        #             # 해당 셀의 로봇 기준 좌표 (x: 전방+, y: 좌+)
+        #             x_cell = j * res + x0
+        #             y_cell = i * res + y0
+        #             dist   = math.hypot(x_cell, y_cell)
 
-                    if dist <= person_stop_m:
-                        person_close = True
-                        break
-            if person_close:
-                break
+        #             if dist <= person_stop_m:
+        #                 person_close = True
+        #                 break
+        #     if person_close:
+        #         break
 
-        if person_close:
-            self._publish_stop(f"person_occ88_within_{person_stop_m:.2f}m")
-            return
+        # if person_close:
+        #     self._publish_stop(f"person_occ88_within_{person_stop_m:.2f}m")
+        #     return
 
 
         # ------ 최소 코스트 셀 탐색 ------

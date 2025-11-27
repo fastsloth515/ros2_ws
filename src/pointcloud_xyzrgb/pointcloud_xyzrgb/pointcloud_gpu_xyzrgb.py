@@ -8,8 +8,7 @@ from pycuda.compiler import SourceModule
 _cached_num_pixels = 0
 _depth_gpu = None
 _rgb_gpu = None
-_cloud_gpu = None  # [x,y,z,rgb] float32 4개씩
-
+_cloud_gpu = None  
 
 kernel_code = r"""
 #include <math.h>
@@ -107,7 +106,7 @@ def depth_rgb_to_xyzrgb_gpu(
     range_max: float = 5.0,
 ) -> np.ndarray:
     """
-    GPU에서 바로 [x,y,z,rgb] float32 배열로 만들어서 넘겨주는 함수.
+    GPU에서 바로 [x,y,z,rgb] float32 배열로 만들어서 넘겨주는 함수
 
     반환:
         cloud4_np: (H, W, 4) float32
@@ -135,7 +134,7 @@ def depth_rgb_to_xyzrgb_gpu(
 
     global _cached_num_pixels, _depth_gpu, _rgb_gpu, _cloud_gpu
 
-    # GPU 메모리 (픽셀 수 바뀌면 재할당)
+    # GPU 메모리 
     if _cached_num_pixels != num_pixels or _depth_gpu is None:
         _cached_num_pixels = num_pixels
         _depth_gpu = cuda.mem_alloc(depth_flat.nbytes)
