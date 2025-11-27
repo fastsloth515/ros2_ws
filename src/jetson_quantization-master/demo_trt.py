@@ -86,14 +86,14 @@ class HuggingMask2FormerTRTNode(Node):
         for cid in np.unique(predicted_map):
             if cid in [15, 23, 7, 11, 41, 8]:           # 주행 가능 (1)
                 semantic_map[predicted_map == cid] = 1
-            elif cid in [55, 59, 57, 54, 52]:    # 장애물 (2)
+            elif cid in [19]:    # 장애물 (2)
                 semantic_map[predicted_map == cid] = 2
-            elif cid in [13, 6, 29, 30, ]:          # 피해야 할 영역 (3)
+            elif cid in [13, 6, 29, 30, 55, 59, 57, 54, 52]:          # 피해야 할 영역 (3)
                 semantic_map[predicted_map == cid] = 3
             elif cid in [2, 24]:
                 semantic_map[predicted_map == cid] = 4
-            elif cid in [19]:
-                semantic_map[predicted_map == cid] = 5
+            # elif cid in [19]:
+            #     semantic_map[predicted_map == cid] = 5
             else:                                    # 나머지 (0)
                 semantic_map[predicted_map == cid] = 0
 
@@ -103,8 +103,8 @@ class HuggingMask2FormerTRTNode(Node):
             1: (0,255,0),      # 초록
             2: (255,0,0),      # 파랑
             3: (0,0,255),      # 빨강
-            4: (255,255,255),
-            5: (0,255,255)
+            4: (255,255,255)
+            # 5: (0,255,255)
         }
         h, w = semantic_map.shape
         colored = np.zeros((h, w, 3), dtype=np.uint8)
