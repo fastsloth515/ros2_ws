@@ -51,7 +51,6 @@ class DWACommandNode(Node):
         self.declare_parameter("y_bias", -0.5)     # 자꾸 왼쪽으로 가서///
         # -------------------- 사람(occ=88) 정지 거리 --------------------
         self.declare_parameter("person_stop_dist", 1.2)  # [m], 이 거리 안에 사람(88)이 있으면 정지
-        self.declare_parameter("person_stop_y_width", 0.5)
 
         # -------------------- 검사 창(Window) --------------------
         self.declare_parameter("ahead_m", 2.0)             # 전방 길이[m]
@@ -100,7 +99,6 @@ class DWACommandNode(Node):
         self.w_clear = float(self.get_parameter("w_clear").value)
         self.y_bias  = float(self.get_parameter("y_bias").value)
         self.person_stop_dist = float(self.get_parameter("person_stop_dist").value)
-        self.person_stop_y_width = float(self.get_parameter("person_stop_y_width").value)
 
 
         self.ahead_m      = float(self.get_parameter("ahead_m").value)
@@ -335,7 +333,6 @@ class DWACommandNode(Node):
 
         # ---------- (1) 사람(occ == 88) 근접 시 정지 ----------
         person_stop_m = self.person_stop_dist
-        y_limit = self.person_stop_y_width
         person_close = False
 
         for i in range(i_start, i_end, step):
@@ -345,11 +342,8 @@ class DWACommandNode(Node):
                     # 해당 셀의 로봇 기준 좌표 (x: 전방+, y: 좌+)
                     x_cell = j * res + x0
                     y_cell = i * res + y0
-                    
-                    if abs(y_cell) > y_limit:
-                        continue
-
                     dist   = math.hypot(x_cell, y_cell)
+
                     if dist <= person_stop_m:
                         person_close = True
                         break
