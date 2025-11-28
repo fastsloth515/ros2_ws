@@ -170,7 +170,8 @@ class DWACommandNode(Node):
             "dx_gps","dy_gps",        
             "dx_dwa","dy_dwa",          
             "vx_raw","vyaw_cmd",       
-            "kv","kyaw",                
+            "kv","kyaw",
+            "stop_reason"                
         ])
         self._log_fp.flush()
 

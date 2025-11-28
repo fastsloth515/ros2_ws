@@ -186,17 +186,17 @@ def get_cmd_in() -> Tuple[Optional[float], Optional[float], Optional[float]]:
     with _cmdin_lock:
         return _cmdin_lx, _cmdin_ly, _cmdin_az
     
-# ---- 디버그용: 목표 오차(dx,dy) 공유 ----  # <<< added
+# ---- 디버그용: 목표 오차(dx,dy) 공유 ---- 
 _err_lock = threading.Lock()
 _err_dx = 0.0
 _err_dy = 0.0
 
-def set_err(dx: float, dy: float):  # <<< added
+def set_err(dx: float, dy: float):  
     global _err_dx, _err_dy
     with _err_lock:
         _err_dx, _err_dy = float(dx), float(dy)
 
-def get_err() -> Tuple[float, float]:  # <<< added
+def get_err() -> Tuple[float, float]:  
     with _err_lock:
         return _err_dx, _err_dy
 
@@ -384,7 +384,6 @@ def ntrip_thread(caster, port, mountpoint, user, password, ser, init_queue):
             sock = socket.create_connection((caster, int(port)), timeout=10)
             sock.sendall(req)
 
-            # 응답 헤더 스킵
             buf = b""
             while b"\r\n\r\n" not in buf:
                 b1 = sock.recv(1)
@@ -662,7 +661,7 @@ def control_thread(rate=10.0):
     period = 1.0 / rate
     try:
         while True:
-            # ===== 초기 3 m 직진 + yaw_offset 보정 ===== 정지했다가 보정 후 다시 출발
+            # ===== 초기 3 m 직진 + yaw_offset 보정 ===== 
             x, y, yaw = get_go2_xy_yawdeg()
             lat, lon = get_gps_latlon()
             # dx, dy = goal_to_xy(lat0, lon0, lat, lon, global_heading)
@@ -754,16 +753,14 @@ def control_thread(rate=10.0):
                             prev_x, prev_y, prev_yaw, prev_lat, prev_lon,
                             cur_x,  cur_y,  cur_yaw, cur_lat, cur_lon
                         )
-                        # 지수평활(원래 코드 유지)
+                        # yaw_offset update (원래 코드 유지)
                         yaw_offset = 0.9 * yaw_offset + 0.1 * yaw_offset_new
                         planner_msg = f"update yaw_offset:{yaw_offset:.2f} yaw_off_new:{yaw_offset_new:.2f}"
                         print_info("Planner", planner_msg)
 
-                        # 스냅샷 갱신(다음 비교를 위해 '현재'를 '이전'으로)
                         prev_x, prev_y, prev_yaw = cur_x, cur_y, cur_yaw
                         prev_lat, prev_lon = cur_lat, cur_lon
                 else:
-                    # 최초 1회 초기화 루트 (필요하다면)
                     prev_x, prev_y, prev_yaw = cur_x, cur_y, cur_yaw
                     prev_lat, prev_lon = cur_lat, cur_lon
                     snap_inited = True
@@ -827,8 +824,6 @@ def control_thread(rate=10.0):
 
                     q, _hd, _carr = get_rtk_state()  
                     q_val = "" if q is None else int(q)
-
-                    # cmd를 한 칼럼 문자열로 (소수 3자리, 구분자 '|')
                     cmd_str = f"{vx:.3f}|{vy:.3f}|{vyaw:.3f}"
 
                     # dwa에서의 vx,vy,vyaw값 추출
@@ -858,7 +853,6 @@ def control_thread(rate=10.0):
                     ])
                     log_file.flush()
                 except Exception as e:
-                    # 로깅 실패가 제어를 멈추지 않도록 함
                     pass
 
                 # Send command
@@ -884,7 +878,7 @@ def sensor_thread(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, cmd_rate=CMD_RATE_HZ
     # 1) ROS2: Go2 오도메트리 구독 + /cmd 퍼블리셔 시작
     start_ros_subscribers(go2_topic=go2_topic, cmd_topic=cmd_topic, pub_rate=cmd_rate)
 
-    # 2) GPS I/O 시작 (내부 스레드)
+    # 2) GPS I/O 시작
     start_gps_io(SERIAL_PORT, SERIAL_BAUD)
 
     # 3) 제어/플래너 스레드
@@ -935,7 +929,6 @@ def sensor_thread(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, cmd_rate=CMD_RATE_HZ
 # =========================
 def main():
     print_info("Server", "starting threads")
-    # 토픽명이 '/lf/sportmodestate'라면 인자 바꿔줘: sensor_thread(go2_topic="/lf/sportmodestate")
     sensor_thread(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, cmd_rate=CMD_RATE_HZ)
 
     # 데모: 둘 다 준비되면 미션 온
