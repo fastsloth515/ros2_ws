@@ -402,7 +402,7 @@ class DWACommandNode(Node):
 
         # if best is None:
         #     self._publish_stop("no_cell_in_window")
-        #     return
+        #     return 
 
         # # 최소 코스트가 장애물 셀에서 나왔는지 확인
         # if best_occ is not None and best_occ >= 100:
@@ -413,7 +413,7 @@ class DWACommandNode(Node):
         _, bi, bj, bx, by, bd = best
         dx_dwa, dy_dwa = bx, by  # 로컬 목표 (로봇 기준)
 
-        # --- RViz Marker (로컬 목표) ---
+        # --- RViz Marker ---
         marker = Marker()
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.header.frame_id = "base_link"
@@ -447,22 +447,16 @@ class DWACommandNode(Node):
             scale = max(0.0, min(1.0, bd / m))
             vx_raw *= scale
 
-        # (1) 회전속도 포화
         wz_cmd = max(-self.w_max, min(self.w_max, wz_raw))
 
         # ========= 고정속 우선 =========
-        # 기본은 고정속(파라미터)으로 달림
         vx_cmd = float(getattr(self, "vx_fixed", 0.8))
 
         # 급커브 : 큰 각도(40도 이상)면 제자리 회전 (vx=0)
         if self.turn_mode and abs(theta) > self.theta_turn:
             vx_cmd = 0.0
-
-        # 전진속도 포화
         vx_cmd = max(self.v_min, min(self.v_max, vx_cmd))
 
-
-        # 퍼블리시
         cmd = Twist()
         cmd.linear.x  = float(vx_cmd)
         cmd.angular.z = float(wz_cmd)
