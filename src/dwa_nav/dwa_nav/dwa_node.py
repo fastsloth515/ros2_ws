@@ -64,10 +64,10 @@ class DWACommandNode(Node):
         # -------------------- 속도 생성 파라미터 --------------------
         self.declare_parameter("kv", 0.6)                  # 거리→전진속도 게인
         self.declare_parameter("kyaw", 1.0)                # 각도→회전속도 게인
-        self.declare_parameter("v_max", 0.7)               # 전진 최대[m/s]
+        self.declare_parameter("v_max", 0.9)               # 전진 최대[m/s]
         self.declare_parameter("w_max", 0.75)              # 회전 최대[rad/s]
         self.declare_parameter("v_min", 0.0)               # 전진 최소[m/s]
-        self.declare_parameter("vx_fixed", 0.8)
+        self.declare_parameter("vx_fixed", 0.9)
 
         # -------------------- 회전 우선 옵션 --------------------
         self.declare_parameter("safety_slowdown", True)    # d<margin 감속
@@ -450,7 +450,7 @@ class DWACommandNode(Node):
         wz_cmd = max(-self.w_max, min(self.w_max, wz_raw))
 
         # ========= 고정속 우선 =========
-        vx_cmd = float(getattr(self, "vx_fixed", 0.8))
+        vx_cmd = float(getattr(self, "vx_fixed", 0.9))
 
         # 급커브 : 큰 각도(40도 이상)면 제자리 회전 (vx=0)
         if self.turn_mode and abs(theta) > self.theta_turn:
