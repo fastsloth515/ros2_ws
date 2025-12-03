@@ -150,7 +150,7 @@ class BEVGridNode(Node):
         grid_np[i_grid[mask_obstacle & valid_mask],
                 j_grid[mask_obstacle & valid_mask]] = 100   #장애물
         grid_np[i_grid[mask_person & valid_mask],
-                j_grid[mask_person & valid_mask]] = 88      #사람
+                j_grid[mask_person & valid_mask]] = 88      #사람 -> 88인식표로 씀
         grid_np[i_grid[mask_avoid & valid_mask],
                 j_grid[mask_avoid & valid_mask]] = 70       #연석
         grid_np[i_grid[mask_free & valid_mask],
