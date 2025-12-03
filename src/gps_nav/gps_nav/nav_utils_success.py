@@ -83,7 +83,7 @@ def haversine_m(lat1: float, lon1: float,
          + math.cos(phi1) * math.cos(phi2) * math.sin(d_lon / 2) ** 2)
     return 2 * EARTH_R * math.asin(math.sqrt(a))
 
-class LinearPath: ### gps 경로 중에서 무조건 처음부터 시작하는 게 아니라 자신과 가까운 점부터 시작하도록
+class LinearPath:
     """
     Maintains a *linear* directed path (start → … → end) of GPS waypoints.
 
@@ -181,31 +181,6 @@ class LinearPath: ### gps 경로 중에서 무조건 처음부터 시작하는 �
         # look-ahead 내에 들어온 점이 없으면 기존 while(한 점만 체크) 대신 그대로 유지
         # (= 현재 goal을 계속 추종)
         return self.goal, self.idx, self.ratio[self.idx]
-    
-##################################추가함수################################333
-
-    def reset_to_nearest(self, lat: float, lon: float):
-        """
-        현재 (lat, lon)에 가장 가까운 웨이포인트를 찾아서
-        그 인덱스를 새로운 시작점으로 설정한다.
-        반환: (goal, idx, R)
-        """
-        n = len(self.waypoints)
-        if n == 0:
-            raise ValueError("waypoints list is empty")
-
-        best_idx = 0
-        best_dist = float("inf")
-
-        for i, (g_lat, g_lon) in enumerate(self.waypoints):
-            d = haversine_m(lat, lon, g_lat, g_lon)
-            if d < best_dist:
-                best_dist = d
-                best_idx = i
-
-        self.idx = best_idx
-        # 방금 설정한 goal과 ratio를 같이 리턴 (편의용)
-        return self.goal, self.idx, self.ratio[self.idx]    
 
 
 # ------------------------------------------

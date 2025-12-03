@@ -645,21 +645,8 @@ def control_thread(rate=10.0):
     if (lat0 is None) or (lon0 is None):
         print_info("Init", "GPS not ready; skip initial straight.", "yellow")
         return
-    
-    ###########################추가한 부분###############################
 
-    try:
-        goal,idx,R = path.reset_to_nearest(lat0,lon0)
-        if goal is not None:
-            print_info( "Planner", f"reset_to_nearest : idx = {idx}, R={R:.2f}, goal=({goal[0]:.7f}, {goal[1]:.7f})")
-        else:
-            print_info("Planner","reset_to_nearest: path done (no goal)", "yellow")
-    
-    except Exception as e:
-
-    ###########################추가한 부분###############################
-
-    print_info("Init", f"Initial straight: {INIT_STRAIGHT_DIST:.1f} m @ {INIT_STRAIGHT_V:.2f} m/s", "red")
+    print_info("Init", f"Initial straight: {INIT_STRAIGHT_DIST:.1f} m @ {INIT_STRAIGHT_V:.2f} m/s")
     t0 = time.time()
     yaw_hold = yaw0  # 시작 yaw 유지(선택)
 
