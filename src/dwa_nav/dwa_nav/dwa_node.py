@@ -86,7 +86,7 @@ class DWACommandNode(Node):
         # ---- 거리맵 관련 (방식 토글 + 최대거리 + 시각화) ----
         self.declare_parameter("dist_method", "bfs_cuda")
         self.declare_parameter("dist_max_m", 3.0)          # 거리맵 최대 반경[m]
-        self.declare_parameter("publish_distgrid", False)  # 거리맵을 OccGrid로 내보내기
+        self.declare_parameter("publish_distgrid", True)  # 거리맵을 OccGrid로 내보내기
         self.declare_parameter("obstacle_cost", 1e9)  # 장애물 셀에 더할 큰 코스트
         self.obstacle_cost = float(self.get_parameter("obstacle_cost").value)
 
@@ -220,9 +220,9 @@ class DWACommandNode(Node):
                 self.get_logger().warn(f"[distmap] build failed: {e}")
 
         # #  거리맵 RViz에서 확인
-        # if self.pub_dist_occ is not None and self._dist is not None:
-        #     dist_occ = distmap_to_occupancygrid(self._dist, msg, max_dist=self.dist_max_m)
-        #     self.pub_dist_occ.publish(dist_occ)
+        if self.pub_dist_occ is not None and self._dist is not None:
+            dist_occ = distmap_to_occupancygrid(self._dist, msg, max_dist=self.dist_max_m)
+            self.pub_dist_occ.publish(dist_occ)
 
     # ------------------------- 유틸 -------------------------
     def _window_fully_blocked(self, res: float, W: int, H: int, x0: float, y0: float,

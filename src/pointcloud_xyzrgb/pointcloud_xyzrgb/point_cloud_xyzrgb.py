@@ -22,7 +22,7 @@ class PointCloudGPUNode(Node):
         self.bridge = CvBridge()
 
         # ---- Parameters ----
-        self.declare_parameter("range_max", 3.0)  # [m], 0.0이면 무제한
+        self.declare_parameter("range_max", 50.0)  # [m], 0.0이면 무제한
         self.declare_parameter("stride", 2)       # 1=전체, 2=1/4, 3=1/9 ...
         self.declare_parameter("sync_slop", 0.05) # [s]
 
