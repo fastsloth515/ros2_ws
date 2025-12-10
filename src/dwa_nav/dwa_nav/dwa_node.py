@@ -16,15 +16,15 @@ from visualization_msgs.msg import Marker
 from datetime import datetime
 
 # CUDA (옵션)
-import pycuda.autoinit  # noqa: F401
-import pycuda.driver as cuda  # noqa: F401
-from pycuda.compiler import SourceModule  # noqa: F401
+import pycuda.autoinit  
+import pycuda.driver as cuda  
+from pycuda.compiler import SourceModule  
 
-# ---- 거리맵 함수 (같은 폴더의 distmap_def.py) ----
+# ---- distmap_def.py ----
 from .distmap_def import (
     build_dist_map_bfs_cuda,      # CUDA BFS
-    build_dist_map_bf_cuda,       # CUDA Brute-Force (이 이름 그대로 사용)
-    distmap_to_occupancygrid,     # (옵션) 시각화용
+    build_dist_map_bf_cuda,       # CUDA Brute-Force
+    distmap_to_occupancygrid,     # 시각화용
 )
 
 
@@ -137,7 +137,7 @@ class DWACommandNode(Node):
         # ---- 상태 ----
         self._occ  = None                  # OccupancyGrid data (int8 HxW)
         self._info = None                  # (res, W, H, x0, y0)
-        self._dist = None                  # 거리맵 (float32 HxW) [m]
+        self._dist = None                  
         self._vx_prev = 0.0
         self._wz_prev = 0.0
         self._t_prev  = time.time()
@@ -160,10 +160,8 @@ class DWACommandNode(Node):
         package_dir = os.path.dirname(os.path.realpath(__file__))    # .../dwa_nav
         log_dir = os.path.join(package_dir, "log")
 
-        # 폴더 없으면 생성
         os.makedirs(log_dir, exist_ok=True)
 
-        # 최종 로그 파일 경로
         self._log_path = os.path.join(log_dir, f"dwa_log_{timestamp}.csv")
         self._log_fp = open(self._log_path, "w", newline="")
         self._log_writer = csv.writer(self._log_fp)
@@ -204,7 +202,7 @@ class DWACommandNode(Node):
             float(msg.info.origin.position.y),
         )
 
-        # ---- 거리맵 생성 ----
+        # ---- distance map 생성 ----
         method = self.dist_method
         try:
             if method in ("bfs_cuda", "bfs", "cuda"):
@@ -219,12 +217,12 @@ class DWACommandNode(Node):
                 self._last_log_t = time.time()
                 self.get_logger().warn(f"[distmap] build failed: {e}")
 
-        # #  거리맵 RViz에서 확인
+        # #  distance map RViz
         if self.pub_dist_occ is not None and self._dist is not None:
             dist_occ = distmap_to_occupancygrid(self._dist, msg, max_dist=self.dist_max_m)
             self.pub_dist_occ.publish(dist_occ)
 
-    # ------------------------- 유틸 -------------------------
+    # ------------------------- util -------------------------
     def _window_fully_blocked(self, res: float, W: int, H: int, x0: float, y0: float,
                               j0: int, i0: int) -> bool:
         """
@@ -242,13 +240,12 @@ class DWACommandNode(Node):
         i_end   = min(H, i0 + int(self.half_width_m / res) + 1)
 
         if j_start >= j_end or i_start >= i_end:
-            return False  # 창이 유효하지 않으면 막힘 판정 안 함
+            return False  
 
         # stride 
         step = max(1, int(self.stride))
         win = self._occ[i_start:i_end:step, j_start:j_end:step]
 
-        # free(0)가 하나라도 있으면 '막히지 않음'
         if np.any(win == 0):
             return False
         if not self.unknown_is_obstacle and np.any(win < 0):
@@ -278,7 +275,7 @@ class DWACommandNode(Node):
             self._last_log_t = t_now
             self.get_logger().warn(f"[STOP] {reason} -> cmd(0,0)")
 
-    # ------------------------- 주기 처리 -------------------------
+    # ------------------------- 주기  -------------------------
     def _on_timer(self):
         t_now = time.time()
 
@@ -298,10 +295,9 @@ class DWACommandNode(Node):
                     )
                 return
 
-        # 2) 내부 DWA 계산 전: 전방 창 완전 차단 시 정지
+        # 2) window_fully_blocked
         # if self._occ is not None and self._info is not None:
         #     res, W, H, x0, y0 = self._info
-        #     # 로봇(0,0)의 격자 인덱스 (j: x, i: y) — 맵이 로봇 좌표와 평행(회전0)이라고 가정
         #     j0 = int((-0.34 - x0) / res)
         #     i0 = int((0.0 - y0) / res)
         #     if 0 <= j0 < W and 0 <= i0 < H:
@@ -342,7 +338,7 @@ class DWACommandNode(Node):
             for j in range(j_start, j_end, step):
                 occ_ij = int(self._occ[i, j])
                 if occ_ij == 88:
-                    # 해당 셀의 로봇 기준 좌표 (x: 전방+, y: 좌+)
+                    #  로봇 기준 좌표 (x: 전방+, y: 좌+)
                     x_cell = j * res + x0
                     y_cell = i * res + y0
                     
@@ -361,9 +357,9 @@ class DWACommandNode(Node):
             return
 
 
-        # ------ 최소 코스트 셀 탐색 ------
+        # ------ minimum cost cell ------
         best = None
-        best_occ = None  # 최종 선택 셀의 occupancy 저장
+        best_occ = None  
 
         m = max(1e-6, self.margin)   
 
@@ -378,8 +374,8 @@ class DWACommandNode(Node):
 
                 # unknown 처리 
                 if self.unknown_is_obstacle and occ < 0:
-                    # 1) 완전 차단하려면: continue
-                    # 2) 코스트만 크게 하려면: pass  (아래서 obstacle_cost 추가)
+                    # 1) 완전 차단하려면 continue
+                    # 2) 코스트만 크게 하려면 pass  
                     pass
 
                 x = j * res + x0
@@ -404,14 +400,14 @@ class DWACommandNode(Node):
         #     self._publish_stop("no_cell_in_window")
         #     return 
 
-        # # 최소 코스트가 장애물 셀에서 나왔는지 확인
+        # # 최소 코스트가 장애물인 셀이면 정지
         # if best_occ is not None and best_occ >= 100:
         #     self._publish_stop("only_obstacles_in_window")
         #     return
 
 
         _, bi, bj, bx, by, bd = best
-        dx_dwa, dy_dwa = bx, by  # 로컬 목표 (로봇 기준)
+        dx_dwa, dy_dwa = bx, by  
 
         # --- RViz Marker ---
         marker = Marker()
@@ -442,17 +438,16 @@ class DWACommandNode(Node):
         # if self.turn_mode and abs(theta) > self.theta_turn:
         #     vx_raw = 0.0
 
-        # 근접 감속
         if self.slow and bd < m:
             scale = max(0.0, min(1.0, bd / m))
             vx_raw *= scale
 
         wz_cmd = max(-self.w_max, min(self.w_max, wz_raw))
 
-        # ========= 고정속 우선 =========
+        # 고정 속도
         vx_cmd = float(getattr(self, "vx_fixed", 0.8))
 
-        # 급커브 : 큰 각도(40도 이상)면 제자리 회전 (vx=0)
+        # 큰 각도(40도 이상)면 (vx=0)
         if self.turn_mode and abs(theta) > self.theta_turn:
             vx_cmd = 0.0
         vx_cmd = max(self.v_min, min(self.v_max, vx_cmd))
@@ -476,7 +471,6 @@ class DWACommandNode(Node):
         except Exception:
             pass
 
-        # 디버그 (rate limit)
         if (t_now - self._last_log_t) > 0.3:
             self._last_log_t = t_now
             self.get_logger().info(

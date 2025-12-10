@@ -20,13 +20,13 @@ def build_dist_map_bfs_cuda(occupancy_grid_msg, max_dist=5.0):
     res    = occupancy_grid_msg.info.resolution
     data   = np.array(occupancy_grid_msg.data, dtype=np.int8).reshape(height, width)
 
-    # 장애물 마스크 생성 (1 = obstacle, 0 = free)
+    # obstacle mask (1 = obstacle, 0 = free)
     grid_np = (data > 0).astype(np.float32)
 
-    # 거리맵 초기화
+    # initialization
     dist_map = np.where(grid_np > 0, 0.0, np.inf).astype(np.float32)
 
-    # CUDA 커널 코드 (wave propagation)
+    # CUDA kernel(wave propagation)
     kernel_code = """
     __global__ void update_distance(
         float *dist, const float *obstacle,
@@ -66,11 +66,9 @@ def build_dist_map_bfs_cuda(occupancy_grid_msg, max_dist=5.0):
     }
     """
 
-    # CUDA 컴파일
     mod = SourceModule(kernel_code)
     kernel = mod.get_function("update_distance")
 
-    # GPU 메모리 할당
     grid_gpu = cuda.mem_alloc(grid_np.nbytes)
     dist_gpu = cuda.mem_alloc(dist_map.nbytes)
     changed_gpu = cuda.mem_alloc(np.int32().nbytes)
@@ -84,7 +82,6 @@ def build_dist_map_bfs_cuda(occupancy_grid_msg, max_dist=5.0):
     # wavefront propagation 반복
     iteration = 0
     while True:
-        # ✅ 수정: NumPy 배열로 만들어서 mutable buffer 보장
         changed = np.zeros(1, dtype=np.int32)
         cuda.memcpy_htod(changed_gpu, changed)
 
@@ -99,11 +96,9 @@ def build_dist_map_bfs_cuda(occupancy_grid_msg, max_dist=5.0):
         cuda.memcpy_dtoh(changed, changed_gpu)
         iteration += 1
 
-        # 변경 없으면 종료
         if changed[0] == 0 or iteration > 1000:
             break
 
-    # 결과 복사
     cuda.memcpy_dtoh(dist_map, dist_gpu)
     dist_map[np.isinf(dist_map)] = max_dist
 
@@ -120,22 +115,20 @@ def build_dist_map_bf_cuda(occupancy_grid_msg, max_dist=5.0):
     max_dist           : 거리 제한 [m]
     """
 
-    # --- 기본 정보 추출 ---
     width  = occupancy_grid_msg.info.width
     height = occupancy_grid_msg.info.height
     res    = occupancy_grid_msg.info.resolution
     data   = np.array(occupancy_grid_msg.data, dtype=np.int8).reshape(height, width)
 
-    # 장애물 좌표 목록 생성
     obstacle_coords = np.argwhere(data > 0).astype(np.int32)
     n_obs = obstacle_coords.shape[0]
     if n_obs == 0:
         return np.full((height, width), max_dist, dtype=np.float32)
 
-    # 거리맵 초기화
+    # initialization
     dist_map = np.full((height, width), max_dist, dtype=np.float32)
 
-    # CUDA 커널 코드 (각 셀이 모든 장애물과 거리 계산 → 최소값 선택)
+    # CUDA kernel code (각 셀이 모든 장애물과 거리 계산 → 최소값 선택)
     kernel_code = """
     __global__ void compute_dist_map(
         float *dist, const int *obstacles, int n_obs,
@@ -163,19 +156,16 @@ def build_dist_map_bf_cuda(occupancy_grid_msg, max_dist=5.0):
     }
     """
 
-    # CUDA 컴파일
+    # CUDA compile
     mod = SourceModule(kernel_code)
     kernel = mod.get_function("compute_dist_map")
 
-    # GPU 메모리 할당
     dist_gpu = cuda.mem_alloc(dist_map.nbytes)
     obs_gpu  = cuda.mem_alloc(obstacle_coords.nbytes)
 
-    # GPU로 데이터 복사
     cuda.memcpy_htod(dist_gpu, dist_map)
     cuda.memcpy_htod(obs_gpu, obstacle_coords)
 
-    # 블록 및 그리드 설정
     block = (16, 16, 1)
     grid_dim = ((width + 15) // 16, (height + 15) // 16)
 
@@ -188,7 +178,6 @@ def build_dist_map_bf_cuda(occupancy_grid_msg, max_dist=5.0):
         block=block, grid=grid_dim
     )
 
-    # 결과 복사
     cuda.memcpy_dtoh(dist_map, dist_gpu)
     dist_map = np.clip(dist_map, 0, max_dist).astype(np.float32)
 

@@ -22,8 +22,8 @@ class PointCloudGPUNode(Node):
         self.bridge = CvBridge()
 
         # ---- Parameters ----
-        self.declare_parameter("range_max", 50.0)  # [m], 0.0이면 무제한
-        self.declare_parameter("stride", 2)       # 1=전체, 2=1/4, 3=1/9 ...
+        self.declare_parameter("range_max", 3.0) # 거리
+        self.declare_parameter("stride", 2)       # 건너 뛸 셀
         self.declare_parameter("sync_slop", 0.05) # [s]
 
         qos = rclpy.qos.QoSProfile(depth=10)
@@ -190,7 +190,7 @@ class PointCloudGPUNode(Node):
             if stride > 1:
                 cloud4_np = cloud4_np[::stride, ::stride, :]
 
-            # ---- 5.5) 거리 기반 필터 (Z ≤ range_max) ----
+            # ---- 5.5) 거리 기반 필터 ----
             max_range = float(
                 self.get_parameter("range_max").get_parameter_value().double_value
             )

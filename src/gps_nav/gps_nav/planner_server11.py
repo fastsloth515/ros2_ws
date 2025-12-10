@@ -35,7 +35,6 @@ import serial
 import json
 
 # ===== CSV 로그 경로 설정 =====
-# 기본 파일 이름: log_시간값.csv
 _default_log_name = f"log_{int(time.time())}.csv"
 _env_log = os.getenv("LOG_CSV", _default_log_name)
 
@@ -47,8 +46,6 @@ else:
     log_dir.mkdir(parents=True, exist_ok=True)   
     LOG_PATH = log_dir / _env_log
 
-
-# ---------- 설정 ----------
 SERIAL_PORT = os.getenv("GPS_SERIAL", "/dev/gps")
 SERIAL_BAUD = int(os.getenv("GPS_BAUD", "115200"))
 GO2_TOPIC   = os.getenv("GO2_TOPIC", "/sportmodestate")
@@ -63,8 +60,6 @@ REDIS_KEY   = "gps_state"
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 
-
-# 초기 강제 직진 & 보정 파라미터 (환경변수로 조절 가능)
 INIT_STRAIGHT_DIST  = float(os.getenv("INIT_STRAIGHT_DIST", "3.0"))   # m
 INIT_STRAIGHT_V     = float(os.getenv("INIT_STRAIGHT_V", "0.5"))      # m/s
 INIT_STRAIGHT_TMAX  = float(os.getenv("INIT_STRAIGHT_TMAX", "15.0"))  # s
@@ -82,7 +77,6 @@ from geometry_msgs.msg import Twist
 from pyubx2 import UBXReader, UBXMessage, SET
 from pynmeagps.nmeamessage import NMEAMessage
 
-# ---------- 프로젝트 종속 ----------
 from termcolor import colored
 from .controller import PriorityPD
 from .nav_utils import *   # EARTH_R, haversine_xy, normalize, LinearPath, load_all_paths
@@ -125,7 +119,7 @@ _go2_y: float = 0.0
 _go2_yaw_deg: float = 0.0    # heading in degrees
 _go2_ready = threading.Event()
 
-# ---- 내비/미션 ----
+# ---- nav, mission ----
 yaw_offset: float = 0.0
 global_heading: float = 0.0
 HEADING_CALIBRATED: bool = False  
@@ -156,7 +150,7 @@ INIT_GPS = False
 REACH_TOL = 5.0  # m
 print_info("reach tol", f"reach_tol={REACH_TOL}")
 
-# ---- cmd 퍼블리시용 공유 변수 ----
+# ---- cmd publish  ----
 _cmd_lock = threading.Lock()
 _cmd_vx = 0.0
 _cmd_vy = 0.0
@@ -171,7 +165,6 @@ def get_cmd() -> Tuple[float, float, float]:
     with _cmd_lock:
         return _cmd_vx, _cmd_vy, _cmd_vyaw
     
-# ---- /cmd 모니터링용 공유 변수 ----
 _cmdin_lock = threading.Lock()
 _cmdin_lx: Optional[float] = None
 _cmdin_ly: Optional[float] = None
@@ -374,7 +367,6 @@ def ntrip_thread(caster, port, mountpoint, user, password, ser, init_queue):
         f"Authorization: Basic {auth}\r\n\r\n"
     ).encode('ascii')
 
-    # 초기 대략 좌표(ubx_thread가 한 번만 넣어줌)
     lat, lon = init_queue.get(block=True)
     print(f"[NTRIP] Got approx pos: {lat:.7f}, {lon:.7f}")
 
@@ -398,7 +390,7 @@ def ntrip_thread(caster, port, mountpoint, user, password, ser, init_queue):
 
             while True:
                 now = time.time()
-                # 1 Hz GGA 업링크 (최신 좌표 사용)
+                # 1 Hz GGA 업링크 
                 if now - last_gga >= 1.0:
                     lat_l, lon_l = get_gps_latlon()
                     if lat_l is not None and lon_l is not None:
@@ -443,7 +435,7 @@ def start_gps_io(serial_port=SERIAL_PORT, serial_baud=SERIAL_BAUD):
         threading.Thread(target=ntrip_thread, args=(caster, port, mountpoint, user, password, ser, q), daemon=True).start()
 
 # =========================
-# ROS2: Go2 오도메트리 구독 + /cmd 퍼블리시
+# ROS2: Topic Sub/Pub
 # =========================
 class Go2OdomSub(Node):
     def __init__(self, topic_name="/sportmodestate"):
@@ -480,7 +472,7 @@ class CmdPublisher(Node):
         msg.linear.x  = vx
         msg.linear.y  = vy
         msg.angular.z = vyaw
-        msg.linear.z  = signal_vz   # <<< 신호 전용
+        msg.linear.z  = signal_vz   # <<< 신호로만 씀
 
         self.pub.publish(msg)
 
@@ -592,14 +584,13 @@ def control_thread(rate=10.0):
             "yaw_offset",
             "global_heading_deg",
             "heading_err_rad",
-            "cmd",          # "vx|vy|vyaw" 문자열로 저장
+            "cmd",          # "vx|vy|vyaw" 
             "quality",       # NMEA GGA quality (0/1/2/4/5)
             "cmd_in_lx","cmd_in_ly","cmd_in_az"]
     if log_path.stat().st_size == 0:
         log_writer.writerow(log_headers)
         log_file.flush()
         
-        # flag 확인 후 '-' 추가
         if insert_dash_flag:
             insert_dash_flag = False
             log_writer.writerow(['-' for _ in log_headers])
@@ -621,7 +612,6 @@ def control_thread(rate=10.0):
     heading_margin = 45*(math.pi/180)
     print_info("params", f"max_vx={max_vx},max_vy={max_vy},max_vyaw={max_vyaw}, Kx={Kx},Ky={Ky},Kyaw={Kw},heading_margin={heading_margin}")
 
-
     # GPS Filter
     gps_count = 0
     gps_tol = 0.1 * max_vx * 2
@@ -639,7 +629,7 @@ def control_thread(rate=10.0):
     print_info("Control", f"GO2  init x={x0:.3f}, y={y0:.3f}, yaw(deg)={yaw0:.2f}")
     INIT_GPS = True
 
-    # yaw angle 초기화
+    # yaw angle initialization
     lat0, lon0 = get_gps_latlon()
     x0, y0, yaw0 = get_go2_xy_yawdeg()
     if (lat0 is None) or (lon0 is None):
@@ -681,7 +671,6 @@ def control_thread(rate=10.0):
             # print_info("Distance", f"({dx:.2f}, {dy:.2f})", "yellow")
 
             if not HEADING_CALIBRATED:
-                # 루프 안
                 yaw_err_deg = _wrap_deg(yaw_hold - yaw)        # deg
                 yaw_err_rad = math.radians(yaw_err_deg)        # rad
                 vyaw_cmd = INIT_STRAIGHT_KP_YAW * yaw_err_rad  # rad/s  
@@ -758,7 +747,7 @@ def control_thread(rate=10.0):
 
                 print_info("goal",f"goal[0]={goal[0]:.2f},goal[1]={goal[1]:.2f},idx={idx}")
 
-                # yaw_offset 보정 (odom 이동량 충분할 때만) 추가 
+                # yaw_offset calibration
                 if snap_inited:
                     moved = math.hypot(cur_x - prev_x, cur_y - prev_y)
                     if moved > MOV_THRESH_M and (cur_lat is not None) and (cur_lon is not None):
@@ -766,7 +755,7 @@ def control_thread(rate=10.0):
                             prev_x, prev_y, prev_yaw, prev_lat, prev_lon,
                             cur_x,  cur_y,  cur_yaw, cur_lat, cur_lon
                         )
-                        # yaw_offset update (원래 코드 유지)
+                        # yaw_offset update 
                         yaw_offset = 0.9 * yaw_offset + 0.1 * yaw_offset_new
                         planner_msg = f"update yaw_offset:{yaw_offset:.2f} yaw_off_new:{yaw_offset_new:.2f}"
                         print_info("Planner", planner_msg)
@@ -888,13 +877,10 @@ def control_thread(rate=10.0):
 # 스레드 시작
 # =========================
 def sensor_thread(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, cmd_rate=CMD_RATE_HZ):
-    # 1) ROS2: Go2 오도메트리 구독 + /cmd 퍼블리셔 시작
     start_ros_subscribers(go2_topic=go2_topic, cmd_topic=cmd_topic, pub_rate=cmd_rate)
 
-    # 2) GPS I/O 시작
     start_gps_io(SERIAL_PORT, SERIAL_BAUD)
 
-    # 3) 제어/플래너 스레드
     threading.Thread(target=control_thread, args=(10.0,), daemon=True).start()
     threading.Thread(target=key_listener, daemon=True).start()
     #threading.Thread(target=planner_thread, args=(1.0,), daemon=True).start()
@@ -944,7 +930,6 @@ def main():
     print_info("Server", "starting threads")
     sensor_thread(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, cmd_rate=CMD_RATE_HZ)
 
-    # 데모: 둘 다 준비되면 미션 온
     if wait_gps(timeout=60.0) and wait_go2(timeout=60.0):
         print_info("Server", "Sensors ready. Activating mission in 2s…")
         time.sleep(2.0)
@@ -952,7 +937,6 @@ def main():
     else:
         print_info("Server", "Sensors not ready. Mission inactive.", "yellow")
 
-    # 유지 루프 + RTK 상태 요약 출력
     try:
         while True:
             lat, lon = get_gps_latlon()
