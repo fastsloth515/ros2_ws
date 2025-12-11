@@ -44,8 +44,6 @@ class HuggingMask2FormerTRTNode(Node):
         ).config
 
         self.trt_model = TRTEngine(ENGINE_PATH)
-
-        # ROS topic 설정
         self.subscription = self.create_subscription(
             Image,
             "/camera/camera/color/image_raw",
@@ -62,19 +60,19 @@ class HuggingMask2FormerTRTNode(Node):
         # ROS Image → OpenCV
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
-        # OpenCV에서 바로 RGB 변환 후 numpy 전처리
+        # OpenCV - RGB 변환 - numpy 전처리
         img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         inputs = self.processor(images=img_rgb, return_tensors="pt")
-        pixel_values = inputs["pixel_values"].numpy().copy()  # TRT용 numpy
+        pixel_values = inputs["pixel_values"].numpy().copy() 
 
-        # 추론 (TRT 엔진은 하나의 출력만 반환)
+        # 추론 
         outputs = self.trt_model.infer(pixel_values)
         logits = torch.from_numpy(outputs[0])   # [1, 65, 60, 80]
 
         # 가장 높은 클래스 선택 → segmentation map
         predicted_map = logits.argmax(dim=1).cpu().numpy()[0]  # [60, 80]
 
-        # 원본 해상도(480x640)로 업샘플
+        # 원본 해상도로 업샘플
         predicted_map = cv2.resize(
             predicted_map.astype(np.uint8),
             (frame.shape[1], frame.shape[0]),
@@ -84,13 +82,16 @@ class HuggingMask2FormerTRTNode(Node):
         # semantic_map 생성
         semantic_map = np.zeros_like(predicted_map, dtype=np.uint8)
         for cid in np.unique(predicted_map):
-            if cid in [15, 23, 7, 11, 41, 8]:           # 주행 가능 (1)
+            if cid in [15, 23, 7, 11, 41, 8]:           # 주행 가능 (1) 
+                #sidewalk,lane,bikelane,pedestrian area,manhole,crosswalk
                 semantic_map[predicted_map == cid] = 1
-            elif cid in [19]:    # 장애물 (2)
+            elif cid in [19]:                           # 사람 (2)
                 semantic_map[predicted_map == cid] = 2
-            elif cid in [13, 6, 29, 30, 55, 59, 57, 54, 52]:          # 피해야 할 영역 (3)
+            elif cid in [13, 6, 29, 30, 55, 59, 57, 54, 52]:   # 피해야 할 영역 (3)
+                #road,wall,terrain,vegetation,car,other vehicle,motorcycle,bus,bicycle
                 semantic_map[predicted_map == cid] = 3
-            elif cid in [2, 24]:
+            elif cid in [2, 24]:           
+                #lane mk-general,curb                    # 연석
                 semantic_map[predicted_map == cid] = 4
             # elif cid in [19]:
             #     semantic_map[predicted_map == cid] = 5

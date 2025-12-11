@@ -72,6 +72,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
 from unitree_go.msg import SportModeState
 from geometry_msgs.msg import Twist
+from std_msgs.msg import String
 
 # ---------- GPS 파서 ----------
 from pyubx2 import UBXReader, UBXMessage, SET
@@ -140,6 +141,17 @@ if ALL_PATHS:
 
 print_info("Planner", f"available paths: {', '.join(sorted(ALL_PATHS.keys()))}")
 print_info("Planner", f"selected path: {selected_path_file}", "yellow")
+
+DEST_TO_PATH = {
+    # "사용자가 말할 목적지 라벨": "ALL_PATHS의 키(경로 파일 이름)"
+    # 예: "gate": "paths/gate_to_center.txt",
+    #     "dorm": "paths/center_to_dorm.txt",
+         "L1":  "paths/center_to_L1.txt",
+}
+
+# ★ 인터랙션에서 들어오는 목적지 상태
+DEST_REQUESTED = False
+DEST_LABEL = None
 
 goal_x: Optional[float] = None
 goal_y: Optional[float] = None
@@ -490,6 +502,23 @@ class CmdMonitor(Node):
     def cb(self, msg: Twist):
         _set_cmd_in(msg.linear.x, msg.linear.y, msg.angular.z)  # ← z 사용
 
+class DestinationSub(Node):
+    """
+    /destination (std_msgs/String) 으로 목적지 라벨을 받아서
+    DEST_REQUESTED / DEST_LABEL 전역 플래그를 세팅하는 노드.
+    """
+    def __init__(self, topic_name="/destination"):
+        super().__init__("destination_sub")
+        self.sub = self.create_subscription(
+            String, topic_name, self.cb, 10
+        )
+
+    def cb(self, msg: String):
+        global DEST_REQUESTED, DEST_LABEL
+        dest = msg.data.strip().lower()
+        DEST_LABEL = dest
+        DEST_REQUESTED = True
+        print_info("Dest", f"destination requested: '{dest}'", "yellow")
 
 def get_go2_xy_yawdeg() -> Tuple[float, float, float]:
     with _go2_lock:
@@ -504,11 +533,13 @@ def start_ros_subscribers(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, pub_rate=CMD
         go2_node = Go2OdomSub(go2_topic)
         cmd_node = CmdPublisher(topic_name=cmd_topic, rate_hz=pub_rate)
         cmdmon_node = CmdMonitor(topic_name=CMD_MON_TOPIC)
+        dest_node  = DestinationSub("/destination") 
 
         execu = MultiThreadedExecutor()
         execu.add_node(go2_node)
         execu.add_node(cmd_node)
         execu.add_node(cmdmon_node)
+        execu.add_node(dest_node)
         try:
             execu.spin()
         except KeyboardInterrupt:
@@ -564,6 +595,7 @@ def control_thread(rate=10.0):
     global global_heading
     global planner_msg, MISSION_ACTIVE, INIT_GPS, REACH_GOAL, REACH_TOL
     global selected_path_file, ALL_PATHS
+    global DEST_REQUESTED, DEST_LABEL, DEST_TO_PATH 
 
     # ===== CSV 로깅 세팅 =====
     log_path = Path(LOG_PATH)
@@ -648,6 +680,7 @@ def control_thread(rate=10.0):
     except Exception as e:
         print_info("Planner", f"reset_to_nearest failed: {e}", "red")
 
+
     ###########################추가한 부분###############################
 
     print_info("Init", f"Initial straight: {INIT_STRAIGHT_DIST:.1f} m @ {INIT_STRAIGHT_V:.2f} m/s", "red")
@@ -696,7 +729,42 @@ def control_thread(rate=10.0):
                         # =======================================
                         set_cmd(0.0, 0.0, 0.0)
             elif MISSION_ACTIVE: #and (goal_x is not None) and (goal_y is not None):
-                            # 초기 스냅샷
+
+                if DEST_REQUESTED and DEST_LABEL is not None:
+                    DEST_REQUESTED = False
+                    dest = DEST_LABEL.lower()
+                    if dest not in DEST_TO_PATH:
+                        print_info("Planner", f"unknown destination '{dest}' (DEST_TO_PATH에 없음)", "red")
+                    else:
+                        new_path_file = DEST_TO_PATH[dest]
+                        if new_path_file not in ALL_PATHS:
+                            print_info("Planner", f"DEST_TO_PATH['{dest}']={new_path_file} 가 ALL_PATHS에 없음", "red")
+                        else:
+                            selected_path_file = new_path_file
+                            print_info("Planner", f"switch path -> {selected_path_file}", "yellow")
+                            # 새 LinearPath 생성
+                            path = LinearPath(
+                                ALL_PATHS[selected_path_file]['coords'],
+                                reach_tol=REACH_TOL
+                            )
+                            REACH_GOAL = False
+
+                            # 현재 위치에서 가장 가까운 웨이포인트로 idx 스냅
+                            cur_lat_snap, cur_lon_snap = get_gps_latlon()
+                            if (cur_lat_snap is not None) and (cur_lon_snap is not None):
+                                try:
+                                    goal_snap, idx_snap, R_snap = path.reset_to_nearest(cur_lat_snap, cur_lon_snap)
+                                    if goal_snap is not None:
+                                        print_info(
+                                            "Planner",
+                                            f"reset_to_nearest (dest={dest}): idx={idx_snap}, R={R_snap:.2f}, "
+                                            f"goal=({goal_snap[0]:.7f},{goal_snap[1]:.7f})"
+                                        )
+                                    else:
+                                        print_info("Planner", f"reset_to_nearest: path done for dest={dest}", "yellow")
+                                except Exception as e:
+                                    print_info("Planner", f"reset_to_nearest error for dest={dest}: {e}", "red")
+
                 cur_x, cur_y, cur_yaw = get_go2_xy_yawdeg()
                 cur_lat, cur_lon = get_gps_latlon()
                 
@@ -886,44 +954,6 @@ def sensor_thread(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, cmd_rate=CMD_RATE_HZ
     threading.Thread(target=key_listener, daemon=True).start()
     #threading.Thread(target=planner_thread, args=(1.0,), daemon=True).start()
 
-# =========================
-# main
-# =========================
-# if __name__ == "__main__":
-#     print_info("Server", "starting threads")
-#     # 토픽명이 '/lf/sportmodestate'라면 인자 바꿔줘: sensor_thread(go2_topic="/lf/sportmodestate")
-#     sensor_thread(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, cmd_rate=CMD_RATE_HZ)
-
-#     # 데모: 둘 다 준비되면 미션 온
-#     if wait_gps(timeout=60.0) and wait_go2(timeout=60.0):
-#         print_info("Server", "Sensors ready. Activating mission in 2s…")
-#         time.sleep(2.0)
-#         MISSION_ACTIVE = True
-#     else:
-#         print_info("Server", "Sensors not ready. Mission inactive.", "yellow")
-
-#     # 유지 루프 + RTK 상태 요약 출력
-#     try:
-#         while True:
-#             lat, lon = get_gps_latlon()
-#             x, y, yaw = get_go2_xy_yawdeg()
-#             yaw_rad = math.radians(yaw)
-#             err_dx, err_dy = get_err()
-#             vx, vy, vyaw = get_cmd()
-#             print_info("DBG", f"err(dx,dy)=({err_dx:.2f},{err_dy:.2f}) | "
-#                             f"cmd(vx,vy,vyaw)=({vx:.2f},{vy:.2f},{vyaw:.2f}) | "
-#                             f"yaw(deg)={yaw:.3f}")
-
-#             if lat is not None and lon is not None:
-#                 q, hd, carr = get_rtk_state()
-#                 rtk_str = f"RTK: carrSoln={carr}({_carr_to_str(carr)}), quality={q}({_q_to_str(q)}), HDOP={hd}"
-#                 # print_info("GPS", f"lat={lat:.7f}, lon={lon:.7f} | {rtk_str}")
-#             print_info("GO2", f"x={x:.3f}, y={y:.3f}, yaw={yaw_rad:.2f}")
-#             print_info("---------------------------loop------------------------------")
-
-#             time.sleep(2.0)
-#     except KeyboardInterrupt:
-#         print_info("Server", "Stopped.")
 # =========================
 # main
 # =========================
