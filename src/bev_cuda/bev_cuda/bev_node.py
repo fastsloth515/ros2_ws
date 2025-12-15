@@ -41,11 +41,11 @@ class BEVGridNode(Node):
         # Declare parameters
         # --------------------------
         self.declare_parameter("res", 0.05)
-        self.declare_parameter("width", 80)
-        self.declare_parameter("height", 80)
+        self.declare_parameter("width", 50)
+        self.declare_parameter("height", 60)
         self.declare_parameter("origin_x", 0.0)
-        self.declare_parameter("origin_y", -2.0)
-        self.declare_parameter("dx", -0.6)
+        self.declare_parameter("origin_y", -1.5) #왼쪽 아래 그리드 시작점 - (self.height * self.res) / 2.0
+        self.declare_parameter("dx", -0.34)
         self.declare_parameter("dy", 0.0)
         self.declare_parameter("closing_kernel_size", 1)
 

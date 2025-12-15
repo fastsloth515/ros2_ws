@@ -505,7 +505,7 @@ class CmdMonitor(Node):
 class DestinationSub(Node):
     """
     /destination (std_msgs/String) 으로 목적지 라벨을 받아서
-    DEST_REQUESTED / DEST_LABEL 전역 플래그를 세팅하는 노드.
+    DEST_REQUESTED / DEST_LABEL 전역 플래그 세팅
     """
     def __init__(self, topic_name="/destination"):
         super().__init__("destination_sub")

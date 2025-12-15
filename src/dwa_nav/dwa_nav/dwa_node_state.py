@@ -14,6 +14,7 @@ from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import Twist, Point
 from visualization_msgs.msg import Marker
 from datetime import datetime
+from std_msgs.msg import String
 
 # CUDA (옵션)
 import pycuda.autoinit  
@@ -52,6 +53,10 @@ class DWACommandNode(Node):
         # -------------------- 사람(occ=88) 정지 거리 --------------------
         self.declare_parameter("person_stop_dist", 1.2)  # [m], 이 거리 안에 사람(88)이 있으면 정지
         self.declare_parameter("person_stop_y_width", 0.5)
+
+        # -------------------- state --------------------
+        self.declare_parameter("state_topic", "/nav_state") # go,stop,idle
+
 
         # -------------------- 검사 창(Window) --------------------
         self.declare_parameter("ahead_m", 2.0)             # 전방 길이[m]
@@ -101,7 +106,7 @@ class DWACommandNode(Node):
         self.y_bias  = float(self.get_parameter("y_bias").value)
         self.person_stop_dist = float(self.get_parameter("person_stop_dist").value)
         self.person_stop_y_width = float(self.get_parameter("person_stop_y_width").value)
-
+        self.state_topic = self.get_parameter("state_topic").value
 
         self.ahead_m      = float(self.get_parameter("ahead_m").value)
         self.half_width_m = float(self.get_parameter("half_width_m").value)
@@ -146,12 +151,17 @@ class DWACommandNode(Node):
         # /cmd_vel 
         self._ext_cmd = None  # type: Twist | None
 
+        # nav_state
+        self._nav_state = "idle"
+
         # ---- I/O ----
         self.create_subscription(OccupancyGrid, self.occ_topic, self._cb_occ, 10)
         self.pub_cmd    = self.create_publisher(Twist, self.cmd_topic, 10)
         self.pub_marker = self.create_publisher(Marker, self.marker_topic, 10)
         self.sub_dxdy   = self.create_subscription(Point, "/dxdy", self._cb_dxdy, 10)
         self.sub_extcmd = self.create_subscription(Twist, "/cmd_vel", self._cb_cmd_vel, 10)
+
+        self.sub_state = self.create_subscription(String, self.state_topic, self._cb_state, 10)
 
         self.timer = self.create_timer(self.dt, self._on_timer)
 
@@ -201,7 +211,6 @@ class DWACommandNode(Node):
             float(msg.info.origin.position.x),
             float(msg.info.origin.position.y),
         )
-
         # ---- distance map 생성 ----
         method = self.dist_method
         try:
@@ -221,6 +230,21 @@ class DWACommandNode(Node):
         if self.pub_dist_occ is not None and self._dist is not None:
             dist_occ = distmap_to_occupancygrid(self._dist, msg, max_dist=self.dist_max_m)
             self.pub_dist_occ.publish(dist_occ)
+
+    def _cb_state(self, msg: String):
+        """
+        /nav_state 에서 들어오는 상태 문자열:
+            - "go"   : 장애물 회피 주행 활성
+            - "stop" : 즉시 정지
+            - "idle" : 대기 (정지)
+        """
+        s = msg.data.strip().lower()
+        if s in ("go", "stop", "idle"):
+            self._nav_state = s
+            self.get_logger().info(f"[state] nav_state = {self._nav_state}")
+        else:
+            self.get_logger().warn(f"[state] unknown nav_state '{msg.data}' (ignored)")
+
 
     # ------------------------- util -------------------------
     def _window_fully_blocked(self, res: float, W: int, H: int, x0: float, y0: float,
@@ -294,6 +318,16 @@ class DWACommandNode(Node):
                         f"[passthrough] /cmd <- /cmd_vel (vx={self._ext_cmd.linear.x:.2f}, wz={self._ext_cmd.angular.z:.2f})"
                     )
                 return
+        # 1.5) go stop idle 상태에 따른 동작
+        state = getattr(self, "_nav_state", "idle")
+
+        if state == "stop":
+            self._publish_stop("state_stop")
+            return
+        
+        if state == "idle":
+            self._publish_stop("state_idle")
+            return
 
         # 2) window_fully_blocked
         # if self._occ is not None and self._info is not None:
@@ -372,6 +406,7 @@ class DWACommandNode(Node):
 
                 occ = int(self._occ[i, j])
 
+                # unknown 처리 
                 if self.unknown_is_obstacle and occ < 0:
                     # 1) 완전 차단하려면 continue
                     # 2) 코스트만 크게 하려면 pass  
@@ -425,7 +460,7 @@ class DWACommandNode(Node):
         self.pub_marker.publish(marker)
 
         # ------ 속도 생성 ------
-        theta = math.atan2(dy_dwa, dx_dwa)   # +면 좌회전
+        theta = math.atan2(dy_dwa, dx_dwa) 
         r = math.hypot(dx_dwa, dy_dwa)
 
         vx_raw = self.kv * r * math.cos(theta)
