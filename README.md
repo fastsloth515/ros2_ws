@@ -1,6 +1,6 @@
 # Launch Commands Summary
 
-## 코드 뒤에 _success 파일은 최종적으로 성공했던 파일
+코드 뒤에 _success 파일은 최종적으로 성공했던 파일
 
 ## 1. RealSense Camera Node
 
