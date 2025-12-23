@@ -22,7 +22,7 @@ class PointCloudGPUNode(Node):
         self.bridge = CvBridge()
 
         # ---- Parameters ----
-        self.declare_parameter("range_max", 3.0) # 거리
+        self.declare_parameter("range_max", 3.0)  # 전방 거리
         self.declare_parameter("stride", 2)       # 건너 뛸 셀
         self.declare_parameter("sync_slop", 0.05) # [s]
 
@@ -30,8 +30,8 @@ class PointCloudGPUNode(Node):
 
         # ---- Latest messages for manual sync ----
         self.last_depth = None   # (t, msg)
-        self.last_rgb = None     # (t, msg)
-        self.last_info = None    # (t, msg)
+        self.last_rgb = None    
+        self.last_info = None    
         self.last_sync_time = None
 
         # ---- Subscribers ----
@@ -85,7 +85,6 @@ class PointCloudGPUNode(Node):
     #     Manual Synchronizer
     # =========================
     def try_sync(self):
-        """depth/rgb/info 세 개가 모두 있고, slop 안이면 한 번 처리."""
         if (
             self.last_depth is None
             or self.last_rgb is None
@@ -105,7 +104,7 @@ class PointCloudGPUNode(Node):
             self.get_parameter("sync_slop").get_parameter_value().double_value
         )
 
-        # 1) 시간 되감김(backwards jump) 감지 → 버퍼 리셋
+        # 1) 시간 되감김 감지
         if self.last_sync_time is not None and t_max < self.last_sync_time - 1e-3:
             self.get_logger().warn(
                 f"Time jumped backwards (last_sync_time={self.last_sync_time:.3f}, "
@@ -130,7 +129,7 @@ class PointCloudGPUNode(Node):
     #    Core Processing
     # =========================
     def process_triplet(self, depth_msg, rgb_msg, info_msg):
-        """depth/rgb/info가 잘 맞춰졌을 때 실제 포인트클라우드 생성."""
+        """depth/rgb/info가 잘 맞춰졌을 때 포인트클라우드 생성"""
         try:
             t0 = time.time()
 

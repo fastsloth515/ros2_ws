@@ -44,11 +44,11 @@ class DWACommandNode(Node):
         # -------------------- 기본/코스트 파라미터 --------------------
         self.declare_parameter("penalty", 13.0)            # 장애물 페널티 상수
         self.declare_parameter("margin", 1.2)              # 안전 여유[m]
-        self.declare_parameter("dx", 0.0)                  # 상위(GPS)가 준 목표 x[m] (로봇 기준)
-        self.declare_parameter("dy", 0.0)                  # 상위(GPS)가 준 목표 y[m] (로봇 기준)
-        self.declare_parameter("w_goal", 1.0)     # 0.8, 목표(dx,dy) 비중
-        self.declare_parameter("w_clear", 1.2)    # 장애물 거리/클리어런스 비중
-        self.declare_parameter("y_bias", -0.5)     # 자꾸 왼쪽으로 가서///
+        self.declare_parameter("dx", 0.0)                  # GPS가 준 목표 x[m] (로봇 기준)
+        self.declare_parameter("dy", 0.0)                  # GPS가 준 목표 y[m] (로봇 기준)
+        self.declare_parameter("w_goal", 1.0)              # 0.8, 목표(dx,dy) 비중
+        self.declare_parameter("w_clear", 1.2)             # 장애물 거리/클리어런스 비중
+        self.declare_parameter("y_bias", -0.5)             # 자꾸 왼쪽으로 가서///
         # -------------------- 사람(occ=88) 정지 거리 --------------------
         self.declare_parameter("person_stop_dist", 1.2)  # [m], 이 거리 안에 사람(88)이 있으면 정지
         self.declare_parameter("person_stop_y_width", 0.5)
@@ -86,8 +86,8 @@ class DWACommandNode(Node):
         # ---- 거리맵 관련 (방식 토글 + 최대거리 + 시각화) ----
         self.declare_parameter("dist_method", "bfs_cuda")
         self.declare_parameter("dist_max_m", 3.0)          # 거리맵 최대 반경[m]
-        self.declare_parameter("publish_distgrid", True)  # 거리맵을 OccGrid로 내보내기
-        self.declare_parameter("obstacle_cost", 1e9)  # 장애물 셀에 더할 큰 코스트
+        self.declare_parameter("publish_distgrid", True)   # 거리맵을 OccGrid로 내보내기
+        self.declare_parameter("obstacle_cost", 1e9)       # 장애물 셀에 더할 큰 코스트
         self.obstacle_cost = float(self.get_parameter("obstacle_cost").value)
 
 
@@ -425,7 +425,7 @@ class DWACommandNode(Node):
         marker.color.r = 1.0; marker.color.g = 0.2; marker.color.b = 0.2; marker.color.a = 1.0
         self.pub_marker.publish(marker)
 
-        # ------ 속도 생성 ------
+        # ------ 속도 ------
         theta = math.atan2(dy_dwa, dx_dwa)   # +면 좌회전
         r = math.hypot(dx_dwa, dy_dwa)
 
@@ -447,7 +447,7 @@ class DWACommandNode(Node):
         # 고정 속도
         vx_cmd = float(getattr(self, "vx_fixed", 0.8))
 
-        # 큰 각도(40도 이상)면 (vx=0)
+        # 큰 각도면 (vx=0)
         if self.turn_mode and abs(theta) > self.theta_turn:
             vx_cmd = 0.0
         vx_cmd = max(self.v_min, min(self.v_max, vx_cmd))

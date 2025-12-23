@@ -1,7 +1,7 @@
 /**********************************************************************
- * Go2 Sport Client Teleop (Keyboard Control)
- * - 키보드 입력으로 이동/정지/자세 제어
- * - ROS2 Humble, Unitree Go2 SDK 기반
+ * Go2 Sport Client Teleop (Keyboard Control) - Incremental speed control
+ * - 기본 vx=1.0으로 출발
+ * - 키보드 입력으로 vx를 0.1씩 증감
  ***********************************************************************/
 
 #include <chrono>
@@ -10,6 +10,7 @@
 #include <thread>
 #include <termios.h>
 #include <unistd.h>
+#include <algorithm>  // std::clamp
 
 #include "rclcpp/rclcpp.hpp"
 #include "common/ros2_sport_client.h"
@@ -17,21 +18,7 @@
 
 #define TOPIC_HIGHSTATE "lf/sportmodestate"
 
-enum TestMode {
-  NORMAL_STAND = 0,
-  BALANCE_STAND,
-  VELOCITY_MOVE,
-  STAND_DOWN,
-  STAND_UP,
-  DAMP,
-  RECOVERY_STAND,
-  SIT,
-  RISE_SIT,
-  MOVE,
-  STOP_MOVE,
-};
-
-// --- Non-blocking keyboard 입력용 함수 ---
+// --- Non-blocking keyboard 입력용 함수 (주의: getchar()는 사실상 blocking임) ---
 int getch()
 {
   struct termios oldt, newt;
@@ -53,46 +40,91 @@ public:
         std::bind(&Go2SportTeleopNode::StateCallback, this, std::placeholders::_1));
 
     RCLCPP_INFO(this->get_logger(),
-                "Go2 Teleop Ready. Controls:\n"
-                "  w/s : 전진/후진\n"
-                "  a/d : 좌측/우측 이동\n"
-                "  q/e : 좌회전/우회전\n"
-                "  space: 정지\n"
-                "  1: Normal Stand, 2: Balance Stand, z: Sit, x: RiseSit\n"
+                "Go2 Teleop Ready (Incremental vx).\n"
+                "  w/s : vx += 0.1 / vx -= 0.1\n"
+                "  a/d : vy += 0.1 / vy -= 0.1\n"
+                "  q/e : wz += 0.1 / wz -= 0.1\n"
+                "  space: StopMove (and reset v=0)\n"
+                "  1: StandUp, 2: BalanceStand, z: Sit, x: RiseSit\n"
+                "  r: reset (vx=1.0, vy=0, wz=0)\n"
                 "  Ctrl+C to quit.");
+
     teleop_thread_ = std::thread(&Go2SportTeleopNode::TeleopLoop, this);
   }
 
 private:
   void StateCallback(const unitree_go::msg::SportModeState::SharedPtr state) {
-    // 위치와 자세 출력
     RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                          "Pos(%.2f, %.2f, %.2f), Yaw=%.2f",
                          state->position[0], state->position[1], state->position[2],
                          state->imu_state.rpy[2]);
   }
 
+  static double clamp(double v, double lo, double hi) {
+    return std::max(lo, std::min(v, hi));
+  }
+
   void TeleopLoop() {
-    double vx = 0.0, vy = 0.0, wz = 0.0;
+    // ---- 기본값: x방향 1.0으로 출발 ----
+    double vx = 1.0;
+    double vy = 0.0;
+    double wz = 0.0;
+
+    // ---- 스텝/제한 ----
+    const double step_vx = 0.1;
+    const double step_vy = 0.1;
+    const double step_wz = 0.1;
+
+    // 안전하게 범위 제한 (필요하면 너 환경에 맞게 조정)
+    const double vx_min = 0.0, vx_max = 1.5;
+    const double vy_min = -0.8, vy_max = 0.8;
+    const double wz_min = -1.0, wz_max = 1.0;
+
+    // 시작하자마자 "출발"
+    sport_client_.Move(req_, vx, vy, wz);
+    RCLCPP_INFO(this->get_logger(), "Start Move: vx=%.2f vy=%.2f wz=%.2f", vx, vy, wz);
 
     while (rclcpp::ok()) {
       int c = getch();
 
-      if (c == 'w') { vx = 0.3; vy = 0.0; wz = 0.0; }
-      else if (c == 's') { vx = -0.3; vy = 0.0; wz = 0.0; }
-      else if (c == 'a') { vx = 0.0; vy = 0.2; wz = 0.0; }
-      else if (c == 'd') { vx = 0.0; vy = -0.2; wz = 0.0; }
-      else if (c == 'q') { vx = 0.0; vy = 0.0; wz = 0.3; }
-      else if (c == 'e') { vx = 0.0; vy = 0.0; wz = -0.3; }
-      else if (c == ' ') { vx = vy = wz = 0.0; sport_client_.StopMove(req_); continue; }
+      bool send_move = false;
+
+      if (c == 'w') { vx += step_vx; send_move = true; }
+      else if (c == 's') { vx -= step_vx; send_move = true; }
+      else if (c == 'a') { vy += step_vy; send_move = true; }
+      else if (c == 'd') { vy -= step_vy; send_move = true; }
+      else if (c == 'q') { wz += step_wz; send_move = true; }
+      else if (c == 'e') { wz -= step_wz; send_move = true; }
+
+      else if (c == ' ') {
+        // 정지 + 값 리셋(원치 않으면 리셋 줄만 지우면 됨)
+        sport_client_.StopMove(req_);
+        vx = 0.0; vy = 0.0; wz = 0.0;
+        RCLCPP_INFO(this->get_logger(), "StopMove. Reset v=0.");
+        continue;
+      }
+
       else if (c == '1') { sport_client_.StandUp(req_); continue; }
       else if (c == '2') { sport_client_.BalanceStand(req_); continue; }
       else if (c == 'z') { sport_client_.Sit(req_); continue; }
       else if (c == 'x') { sport_client_.RiseSit(req_); continue; }
-      else { continue; }
 
-      // Move 명령 보내기
-      sport_client_.Move(req_, vx, vy, wz);
+      else if (c == 'r') {
+        vx = 1.0; vy = 0.0; wz = 0.0;
+        send_move = true;
+      }
+      else {
+        continue;
+      }
+
+      if (send_move) {
+        vx = clamp(vx, vx_min, vx_max);
+        vy = clamp(vy, vy_min, vy_max);
+        wz = clamp(wz, wz_min, wz_max);
+
+        sport_client_.Move(req_, vx, vy, wz);
+        RCLCPP_INFO(this->get_logger(), "Move: vx=%.2f vy=%.2f wz=%.2f", vx, vy, wz);
+      }
     }
   }
 

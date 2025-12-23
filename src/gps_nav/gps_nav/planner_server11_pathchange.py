@@ -730,6 +730,8 @@ def control_thread(rate=10.0):
                         set_cmd(0.0, 0.0, 0.0)
             elif MISSION_ACTIVE: #and (goal_x is not None) and (goal_y is not None):
 
+#========================== path change =========================
+
                 if DEST_REQUESTED and DEST_LABEL is not None:
                     DEST_REQUESTED = False
                     dest = DEST_LABEL.lower()

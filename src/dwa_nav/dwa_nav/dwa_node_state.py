@@ -47,11 +47,11 @@ class DWACommandNode(Node):
         self.declare_parameter("margin", 1.2)              # 안전 여유[m]
         self.declare_parameter("dx", 0.0)                  # 상위(GPS)가 준 목표 x[m] (로봇 기준)
         self.declare_parameter("dy", 0.0)                  # 상위(GPS)가 준 목표 y[m] (로봇 기준)
-        self.declare_parameter("w_goal", 1.0)     # 0.8, 목표(dx,dy) 비중
-        self.declare_parameter("w_clear", 1.2)    # 장애물 거리/클리어런스 비중
-        self.declare_parameter("y_bias", -0.5)     # 자꾸 왼쪽으로 가서///
+        self.declare_parameter("w_goal", 1.0)              # 0.8, 목표(dx,dy) 비중
+        self.declare_parameter("w_clear", 1.2)             # 장애물 거리/클리어런스 비중
+        self.declare_parameter("y_bias", -0.5)             # 자꾸 왼쪽으로 가서///
         # -------------------- 사람(occ=88) 정지 거리 --------------------
-        self.declare_parameter("person_stop_dist", 1.2)  # [m], 이 거리 안에 사람(88)이 있으면 정지
+        self.declare_parameter("person_stop_dist", 1.2)    # [m], 이 거리 안에 사람(88)이 있으면 정지
         self.declare_parameter("person_stop_y_width", 0.5)
 
         # -------------------- state --------------------
@@ -67,8 +67,8 @@ class DWACommandNode(Node):
         self.declare_parameter("unknown_is_obstacle", False) # unknown 구역도 감
 
         # -------------------- 속도 생성 파라미터 --------------------
-        self.declare_parameter("kv", 0.6)                  # 거리→전진속도 게인
-        self.declare_parameter("kyaw", 1.0)                # 각도→회전속도 게인
+        self.declare_parameter("kv", 0.6)                  # 전진속도 gain
+        self.declare_parameter("kyaw", 1.0)                # 회전속도 gain
         self.declare_parameter("v_max", 0.9)               # 전진 최대[m/s]
         self.declare_parameter("w_max", 0.75)              # 회전 최대[rad/s]
         self.declare_parameter("v_min", 0.0)               # 전진 최소[m/s]

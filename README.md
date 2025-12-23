@@ -1,5 +1,7 @@
 # Launch Commands Summary
 
+## 코드 뒤에 _success 파일은 최종적으로 성공했던 파일
+
 ## 1. RealSense Camera Node
 
 A node that outputs RGB and Depth streams from the RealSense camera and performs depth–color alignment.
@@ -29,6 +31,9 @@ A package that generates XYZRGB pointclouds using CUDA based on depth images and
 Execution command:
 
 ros2 run pointcloud_xyzrgb pointcloud_gpu_node
+
+rviz -> frame id : camera_color_optical_frame
+	add topic : "/camera/depth_registered/points"
 
 ---
 
