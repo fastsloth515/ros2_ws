@@ -1,39 +1,38 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+
 ROS2 구독 기반 내비 스켈레톤 (GPS는 내부 스레드로 직접 구동, /cmd 퍼블리시 포함)
 
-[실내 테스트 지원 수정 반영]
-- GPS가 없어도 /destination 토픽을 publish하면 즉시 경로(path)가 전환되도록 변경
-- 기존에는 control_thread 내부에서 path change를 처리해서 GPS 대기에서 막히면 테스트 불가였음
-- 이제 DestinationSub 콜백에서:
-  1) 목적지 라벨 검증
-  2) 경로 파일 검증
-  3) LinearPath 생성 및 전역 path 교체
-  4) GPS 있으면 reset_to_nearest, 없으면 스킵 로그 출력
-- control_thread는 전역 path를 참조(_get_path)하여 주행
+- GPS: ubx_thread / ntrip_thread (내부 스레드) → 최신 lat/lon 전역에 저장
+- ROS2: /sportmodestate (unitree_go/SportModeState)만 구독해서 x,y,yaw 사용
+- goal_to_xy, yaw_offset, planner/control 스레드에서 lat/lon 바로 사용
+- RTK 상태(carrSoln, GGA quality, HDOP) 1초 주기로 로그 출력
+- 제어 스레드에서 계산한 (vx,vy,vyaw)을 /cmd (geometry_msgs/Twist)로 퍼블리시
 
 dependence:
   - rclpy, unitree_go
-  - geometry_msgs.msg.Twist, geometry_msgs.msg.Point
+  - geometry_msgs.msg.Twist
   - pyubx2, pynmeagps
   - controller.PriorityPD
   - nav_utils (EARTH_R, haversine_xy, normalize, LinearPath, load_all_paths 등)
   - python-dotenv (선택)
 """
 
-from __future__ import annotations
 
+
+from __future__ import annotations
 import os, math, time, threading, socket, base64
 from datetime import datetime
 from typing import Optional, Tuple
 from queue import Queue
 import csv
 from pathlib import Path
-import json
-
+from geometry_msgs.msg import Twist, Point
 import redis
 import serial
+import json
 
 # ===== CSV 로그 경로 설정 =====
 _default_log_name = f"log_{int(time.time())}.csv"
@@ -42,9 +41,9 @@ _env_log = os.getenv("LOG_CSV", _default_log_name)
 if os.path.isabs(_env_log):
     LOG_PATH = Path(_env_log)
 else:
-    base_dir = Path(__file__).resolve().parent
-    log_dir = base_dir / "log"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    base_dir = Path(__file__).resolve().parent     
+    log_dir = base_dir / "log"                    
+    log_dir.mkdir(parents=True, exist_ok=True)   
     LOG_PATH = log_dir / _env_log
 
 SERIAL_PORT = os.getenv("GPS_SERIAL", "/dev/gps")
@@ -54,16 +53,17 @@ CMD_TOPIC   = os.getenv("CMD_TOPIC", "/cmd_vel")
 CMD_RATE_HZ = float(os.getenv("CMD_RATE_HZ", "20.0"))
 CMD_MON_TOPIC = os.getenv("CMD_MON_TOPIC", "/cmd")
 DXDY_TOPIC = os.getenv("DXDY_TOPIC", "/dxdy")
-
 REDIS_HOST  = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT  = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_KEY   = "gps_state"
+
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
-INIT_STRAIGHT_DIST   = float(os.getenv("INIT_STRAIGHT_DIST", "3.0"))   # m
-INIT_STRAIGHT_V      = float(os.getenv("INIT_STRAIGHT_V", "0.5"))      # m/s
-INIT_STRAIGHT_TMAX   = float(os.getenv("INIT_STRAIGHT_TMAX", "15.0"))  # s
-INIT_STRAIGHT_KP_YAW = float(os.getenv("INIT_STRAIGHT_KP_YAW", "0.6"))
+
+INIT_STRAIGHT_DIST  = float(os.getenv("INIT_STRAIGHT_DIST", "3.0"))   # m
+INIT_STRAIGHT_V     = float(os.getenv("INIT_STRAIGHT_V", "0.5"))      # m/s
+INIT_STRAIGHT_TMAX  = float(os.getenv("INIT_STRAIGHT_TMAX", "15.0"))  # s
+INIT_STRAIGHT_KP_YAW= float(os.getenv("INIT_STRAIGHT_KP_YAW", "0.6"))
 
 # ---------- ROS2 ----------
 import rclpy
@@ -71,7 +71,7 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
 from unitree_go.msg import SportModeState
-from geometry_msgs.msg import Twist, Point
+from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 
 # ---------- GPS 파서 ----------
@@ -80,12 +80,12 @@ from pynmeagps.nmeamessage import NMEAMessage
 
 from termcolor import colored
 from .controller import PriorityPD
-from .nav_utils import *   # EARTH_R, haversine_xy, normalize, LinearPath, load_all_paths 등
+from .nav_utils import *   # EARTH_R, haversine_xy, normalize, LinearPath, load_all_paths
 
 try:
     from dotenv import load_dotenv
     load_dotenv()
-except Exception:
+except:
     pass
 
 # =========================
@@ -112,6 +112,7 @@ _rtk_hdop: Optional[float] = None
 _rtk_carrsoln: int = 0              # UBX-NAV-PVT carrSoln: 0 none, 1 float, 2 fixed
 _last_rtk_log = 0.0
 
+
 # ---- GO2 odom ----
 _go2_lock = threading.Lock()
 _go2_x: float = 0.0
@@ -122,17 +123,17 @@ _go2_ready = threading.Event()
 # ---- nav, mission ----
 yaw_offset: float = 0.0
 global_heading: float = 0.0
-HEADING_CALIBRATED: bool = False
+HEADING_CALIBRATED: bool = False  
 
 ctrl_msg = ''
 planner_msg = ''
-insert_dash_flag = False
+insert_dash_flag = False 
 
 # ---- 경로 선택 ----
 ALL_PATHS = load_all_paths()
 selected_path_file = None
 if ALL_PATHS:
-    wanted = os.getenv("SELECTED_PATH")
+    wanted = os.getenv("SELECTED_PATH") 
     if wanted and wanted in ALL_PATHS:
         selected_path_file = wanted
     else:
@@ -141,14 +142,15 @@ if ALL_PATHS:
 print_info("Planner", f"available paths: {', '.join(sorted(ALL_PATHS.keys()))}")
 print_info("Planner", f"selected path: {selected_path_file}", "yellow")
 
-# 목적지 → 경로 파일 매핑 (키는 소문자 권장: dest.lower()와 매칭)
 DEST_TO_PATH = {
-    # 예: "l1": "paths/center_to_L1.txt",
-    "l1": "paths/center_to_L1.txt",
-    "l8": "paths/center_to_L8.txt"
+    # "사용자가 말할 목적지 라벨": "ALL_PATHS의 키(경로 파일 이름)"
+    # 예: "gate": "paths/gate_to_center.txt",
+    #     "dorm": "paths/center_to_dorm.txt",
+         "l1":  "paths/center_to_L1.txt",
+         "l8": "paths/center_to_L8.txt"
 }
 
-# ★ 인터랙션에서 들어오는 목적지 상태 (이제는 legacy로 남겨둠. 실제 스위치 처리는 DestinationSub에서 즉시 수행)
+# ★ 인터랙션에서 들어오는 목적지 상태
 DEST_REQUESTED = False
 DEST_LABEL = None
 
@@ -175,7 +177,7 @@ def set_cmd(vx: float, vy: float, vyaw: float):
 def get_cmd() -> Tuple[float, float, float]:
     with _cmd_lock:
         return _cmd_vx, _cmd_vy, _cmd_vyaw
-
+    
 _cmdin_lock = threading.Lock()
 _cmdin_lx: Optional[float] = None
 _cmdin_ly: Optional[float] = None
@@ -189,46 +191,21 @@ def _set_cmd_in(lx: float, ly: float, az: float):
 def get_cmd_in() -> Tuple[Optional[float], Optional[float], Optional[float]]:
     with _cmdin_lock:
         return _cmdin_lx, _cmdin_ly, _cmdin_az
-
-# ---- 디버그용: 목표 오차(dx,dy) 공유 ----
+    
+# ---- 디버그용: 목표 오차(dx,dy) 공유 ---- 
 _err_lock = threading.Lock()
 _err_dx = 0.0
 _err_dy = 0.0
 
-def set_err(dx: float, dy: float):
+def set_err(dx: float, dy: float):  
     global _err_dx, _err_dy
     with _err_lock:
         _err_dx, _err_dy = float(dx), float(dy)
 
-def get_err() -> Tuple[float, float]:
+def get_err() -> Tuple[float, float]:  
     with _err_lock:
         return _err_dx, _err_dy
 
-# =========================
-# 전역 path 관리 (실내에서도 /destination으로 스위치 테스트 가능)
-# =========================
-_path_lock = threading.Lock()
-path: Optional[LinearPath] = None
-
-def _set_path(new_path: LinearPath, new_path_file: str):
-    global path, selected_path_file
-    with _path_lock:
-        path = new_path
-        selected_path_file = new_path_file
-
-def _get_path() -> Optional[LinearPath]:
-    with _path_lock:
-        return path
-
-# 초기 path 생성 (GPS 없어도 생성 가능)
-if selected_path_file is not None:
-    try:
-        _set_path(LinearPath(ALL_PATHS[selected_path_file]['coords'], reach_tol=REACH_TOL),
-                  selected_path_file)
-        print_info("Planner", f"init path object created for {selected_path_file}", "yellow")
-    except Exception as e:
-        print_info("Planner", f"init path creation failed: {e}", "red")
-        _set_path(None, selected_path_file)  # type: ignore
 
 # =========================
 # GPS I/O (내부 스레드)
@@ -271,16 +248,17 @@ def get_rtk_state() -> Tuple[Optional[int], Optional[float], int]:
 def _q_to_str(q):
     try:
         q = int(q)
-    except Exception:
+    except:
         return "UNK"
     return {0:"NO FIX", 1:"GPS FIX", 2:"DGPS/SBAS", 4:"RTK FIXED", 5:"RTK FLOAT"}.get(q, f"UNK({q})")
 
 def _carr_to_str(c):
     try:
         c = int(c)
-    except Exception:
+    except:
         return "UNK"
     return {0:"NO CARRIER", 1:"RTK FLOAT", 2:"RTK FIXED"}.get(c, f"UNK({c})")
+
 
 # ==============================
 # 키 입력 스레드
@@ -298,13 +276,15 @@ def key_listener():
                 os._exit(0)
         except EOFError:
             break
-
+    
 # ====================================================================================================================
 
 def make_gga(lat: float, lon: float) -> bytes:
     """위경도를 받아 NMEA GGA 문장(ASCII byte) 생성 (1 Hz 업링크용)."""
     t = datetime.utcnow().strftime("%H%M%S.00")
+    # lat: DD -> DDMM.MMMM
     lat_d = int(abs(lat)); lat_m = (abs(lat) - lat_d) * 60; lat_dir = 'N' if lat >= 0 else 'S'
+    # lon: DDD -> DDDMM.MMMM
     lon_d = int(abs(lon)); lon_m = (abs(lon) - lon_d) * 60; lon_dir = 'E' if lon >= 0 else 'W'
     core = (f"GPGGA,{t},{lat_d:02d}{lat_m:07.4f},{lat_dir},"
             f"{lon_d:03d}{lon_m:07.4f},{lon_dir},1,12,1.0,0.0,M,0.0,M,,")
@@ -317,46 +297,56 @@ def ubx_thread(ser, init_queue):
     """GPS 수신(UBX+NMEA 파싱) → 최신 lat/lon/RTK 상태 갱신, 초기 좌표 1회 init_queue에 푸시."""
     global _last_rtk_log
     try:
+        # (1) 측정 주기 = 100 ms → 10 Hz
         msg_rate = UBXMessage('CFG', 'CFG-RATE', SET,
-                              measRate=100,
+                              measRate=100,   # ms 단위
                               navRate=1,
-                              timeRef=0)
+                              timeRef=0)      # 0=UTC
         ser.write(msg_rate.serialize())
         time.sleep(0.1)
 
+        # (2) NAV-PVT 메시지를 UART1으로 1회당 한 번씩 출력 (즉, 10 Hz)
         msg_navpvt = UBXMessage('CFG', 'CFG-MSG', SET,
-                                msgClass=0x01,
-                                msgID=0x07,
+                                msgClass=0x01,  # NAV 클래스
+                                msgID=0x07,     # PVT 메시지
                                 rateUART1=1)
+                                # rateUSB=1,      # USB 포트도 쓸 경우
+                                # rateI2C=0,
+                                # rateSPI=0)
         ser.write(msg_navpvt.serialize())
         time.sleep(0.1)
+
         print("[GPS] UBX NAV-PVT 10 Hz 설정 완료")
     except Exception as e:
         print(f"[GPS] 10 Hz 설정 실패: {e}")
-
     ubr = UBXReader(ser, protfilter=3)
     print(f"[GPS] Listening on {ser.port}@{ser.baudrate}")
     pushed_init = False
-
     while True:
         raw, msg = ubr.read()
 
+        # UBX NAV-PVT
         if isinstance(msg, UBXMessage) and msg.identity == 'NAV-PVT':
             lat = msg.lat * 1e-7
             lon = msg.lon * 1e-7
             _set_latest_gps(lat, lon)
-            publish_gps(lat, lon)
+            publish_gps(lat,lon)
 
-            fixtype = getattr(msg, "fixType", 0)
-            carrsoln = getattr(msg, "carrSoln", 0)
+            fixtype = getattr(msg, "fixType", 0)      # 0..5
+            carrsoln = getattr(msg, "carrSoln", 0)    # 0 none, 1 float, 2 fixed
             set_rtk_state(carrsoln=carrsoln)
 
             if not pushed_init and fixtype >= 2:
                 init_queue.put((lat, lon))
                 pushed_init = True
 
-            _last_rtk_log = time.time()
+            now = time.time()
+            # if now - _last_rtk_log > 1.0:
+            #     print(f"[UBX] fixType={fixtype}  carrSoln={carrsoln} ({_carr_to_str(carrsoln)})  "
+            #           f"Lat={lat:.7f} Lon={lon:.7f}")
+            _last_rtk_log = now
 
+        # NMEA GGA
         elif isinstance(msg, NMEAMessage) and msg.identity.endswith('GGA'):
             try:
                 lat = float(msg.lat); lon = float(msg.lon)
@@ -364,8 +354,8 @@ def ubx_thread(ser, init_queue):
                 hdop = float(msg.HDOP) if msg.HDOP not in ("", None) else None
                 quality = int(msg.quality) if msg.quality not in ("", None) else None
                 set_rtk_state(quality=quality, hdop=hdop)
-                publish_gps(lat, lon)
-
+                publish_gps(lat,lon)
+                
                 if not pushed_init and isinstance(msg.lat, float) and isinstance(msg.lon, float):
                     init_queue.put((lat, lon))
                     pushed_init = True
@@ -375,7 +365,7 @@ def ubx_thread(ser, init_queue):
                     print(f"[GGA] quality={quality} ({_q_to_str(quality)}), HDOP={hdop}  "
                           f"Lat={lat:.7f} Lon={lon:.7f}")
                     _last_rtk_log = now
-            except Exception:
+            except:
                 pass
 
 def ntrip_thread(caster, port, mountpoint, user, password, ser, init_queue):
@@ -413,6 +403,7 @@ def ntrip_thread(caster, port, mountpoint, user, password, ser, init_queue):
 
             while True:
                 now = time.time()
+                # 1 Hz GGA 업링크 
                 if now - last_gga >= 1.0:
                     lat_l, lon_l = get_gps_latlon()
                     if lat_l is not None and lon_l is not None:
@@ -420,6 +411,7 @@ def ntrip_thread(caster, port, mountpoint, user, password, ser, init_queue):
                     sock.sendall(make_gga(lat, lon))
                     last_gga = now
 
+                # RTCM 수신 및 시리얼로 전달
                 try:
                     chunk = sock.recv(1024)
                 except socket.timeout:
@@ -436,8 +428,10 @@ def ntrip_thread(caster, port, mountpoint, user, password, ser, init_queue):
             print(f"[NTRIP] Error: {e}. Retrying in 5s…")
             time.sleep(5)
 
+
 def start_gps_io(serial_port=SERIAL_PORT, serial_baud=SERIAL_BAUD):
-    """시리얼 열고 ubx/ntrip 스레드 시작."""
+    """시리얼 열고 ubx/ntrip 스레드 시작. .env에서 caster/port/mountpoint/user/password를 읽음."""
+    import serial
     ser = serial.Serial(serial_port, baudrate=serial_baud, timeout=1)
 
     caster     = os.getenv('caster')
@@ -462,13 +456,11 @@ class Go2OdomSub(Node):
         self.sub = self.create_subscription(
             SportModeState, topic_name, self.cb, qos_profile_sensor_data
         )
-
     def cb(self, msg: SportModeState):
         x = float(msg.position[0]) if len(msg.position) > 0 else 0.0
         y = float(msg.position[1]) if len(msg.position) > 1 else 0.0
         yaw_rad = float(msg.imu_state.rpy[2]) if len(msg.imu_state.rpy) > 2 else 0.0  # rad
         yaw_deg = math.degrees(yaw_rad)  # deg
-
         global _go2_x, _go2_y, _go2_yaw_deg
         with _go2_lock:
             _go2_x = x; _go2_y = y; _go2_yaw_deg = yaw_deg
@@ -479,20 +471,21 @@ class CmdPublisher(Node):
         super().__init__("cmd_publisher")
         self.pub = self.create_publisher(Twist, topic_name, 10)
         self.pub_dxdy = self.create_publisher(Point, DXDY_TOPIC, 10)
-        self.timer = self.create_timer(1.0 / rate_hz, self._on_timer)
 
+        self.timer = self.create_timer(1.0 / rate_hz, self._on_timer)
     def _on_timer(self):
         vx, vy, vyaw = get_cmd()
 
         signal_vz = -10.0 if not HEADING_CALIBRATED else 0.0
         if REACH_GOAL:
-            signal_vz = -100.0
+
+            signal_vz = -100.0  # ★ 미션 완료 시 정지 신호
 
         msg = Twist()
         msg.linear.x  = vx
         msg.linear.y  = vy
         msg.angular.z = vyaw
-        msg.linear.z  = signal_vz   # 신호로만 사용
+        msg.linear.z  = signal_vz   # <<< 신호로만 씀
 
         self.pub.publish(msg)
 
@@ -507,64 +500,26 @@ class CmdMonitor(Node):
     def __init__(self, topic_name="/cmd"):
         super().__init__("cmd_monitor")
         self.sub = self.create_subscription(Twist, topic_name, self.cb, 10)
-
     def cb(self, msg: Twist):
-        _set_cmd_in(msg.linear.x, msg.linear.y, msg.angular.z)
+        _set_cmd_in(msg.linear.x, msg.linear.y, msg.angular.z)  # ← z 사용
 
 class DestinationSub(Node):
     """
     /destination (std_msgs/String) 으로 목적지 라벨을 받아서
-    실내(GPS 없음)에서도 즉시 경로를 스위칭할 수 있도록 콜백에서 바로 처리.
+    DEST_REQUESTED / DEST_LABEL 전역 플래그 세팅
     """
     def __init__(self, topic_name="/destination"):
         super().__init__("destination_sub")
-        self.sub = self.create_subscription(String, topic_name, self.cb, 10)
+        self.sub = self.create_subscription(
+            String, topic_name, self.cb, 10
+        )
 
     def cb(self, msg: String):
-        global REACH_GOAL
-
-        dest_raw = msg.data.strip()
-        dest = dest_raw.lower()
-
-        print_info("Dest", f"destination requested: '{dest_raw}' -> key='{dest}'", "yellow")
-
-        if dest not in DEST_TO_PATH:
-            print_info("Planner", f"unknown destination '{dest}' (DEST_TO_PATH에 없음)", "red")
-            return
-
-        new_path_file = DEST_TO_PATH[dest]
-        if new_path_file not in ALL_PATHS:
-            print_info("Planner", f"DEST_TO_PATH['{dest}']={new_path_file} 가 ALL_PATHS에 없음", "red")
-            print_info("Planner", f"available paths keys sample: {list(ALL_PATHS.keys())[:10]}", "red")
-            return
-
-        try:
-            new_path = LinearPath(ALL_PATHS[new_path_file]['coords'], reach_tol=REACH_TOL)
-            _set_path(new_path, new_path_file)
-            REACH_GOAL = False
-            print_info("Planner", f"switch path -> {new_path_file}", "yellow")
-        except Exception as e:
-            print_info("Planner", f"switch path failed (create LinearPath): {e}", "red")
-            return
-
-        # GPS가 있으면 nearest로 스냅까지 수행, 없으면 스킵
-        cur_lat, cur_lon = get_gps_latlon()
-        if (cur_lat is None) or (cur_lon is None):
-            print_info("Planner", "GPS not ready (indoor). skip reset_to_nearest.", "yellow")
-            return
-
-        try:
-            goal_snap, idx_snap, R_snap = new_path.reset_to_nearest(cur_lat, cur_lon)
-            if goal_snap is not None:
-                print_info(
-                    "Planner",
-                    f"reset_to_nearest (dest={dest}): idx={idx_snap}, R={R_snap:.2f}, "
-                    f"goal=({goal_snap[0]:.7f},{goal_snap[1]:.7f})"
-                )
-            else:
-                print_info("Planner", f"reset_to_nearest: path done for dest={dest}", "yellow")
-        except Exception as e:
-            print_info("Planner", f"reset_to_nearest error for dest={dest}: {e}", "red")
+        global DEST_REQUESTED, DEST_LABEL
+        dest = msg.data.strip()
+        DEST_LABEL = dest
+        DEST_REQUESTED = True
+        print_info("Dest", f"destination requested: '{dest}'", "yellow")
 
 def get_go2_xy_yawdeg() -> Tuple[float, float, float]:
     with _go2_lock:
@@ -579,14 +534,13 @@ def start_ros_subscribers(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, pub_rate=CMD
         go2_node = Go2OdomSub(go2_topic)
         cmd_node = CmdPublisher(topic_name=cmd_topic, rate_hz=pub_rate)
         cmdmon_node = CmdMonitor(topic_name=CMD_MON_TOPIC)
-        dest_node = DestinationSub("/destination")
+        dest_node  = DestinationSub("/destination") 
 
         execu = MultiThreadedExecutor()
         execu.add_node(go2_node)
         execu.add_node(cmd_node)
         execu.add_node(cmdmon_node)
         execu.add_node(dest_node)
-
         try:
             execu.spin()
         except KeyboardInterrupt:
@@ -598,7 +552,6 @@ def start_ros_subscribers(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, pub_rate=CMD
             cmdmon_node.destroy_node()
             dest_node.destroy_node()
             rclpy.shutdown()
-
     threading.Thread(target=_spin, daemon=True).start()
 
 # =========================
@@ -606,17 +559,18 @@ def start_ros_subscribers(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, pub_rate=CMD
 # =========================
 def goal_to_xy(lat_curr, lon_curr, lat_goal, lon_goal, heading_deg):
     """GPS ↦ 평면 (x,y) [m]; x=heading 방향, y=좌측 + (heading_deg는 북 기준)"""
-    dlat = math.radians(lat_goal - lat_curr)
-    dlon = math.radians(lon_goal - lon_curr)
+    # 1) 동-북 오프셋
+    dlat  = math.radians(lat_goal - lat_curr)
+    dlon  = math.radians(lon_goal - lon_curr)
     lat_avg = math.radians((lat_goal + lat_curr) * 0.5)
-
+    # lat_avg = lat_curr * math.pi /180
     north = EARTH_R * dlat
     west  = - EARTH_R * math.cos(lat_avg) * dlon
-
+    # 2) 전진 방향에 맞춰 회전
     psi = math.radians(heading_deg)
     x =  west * math.sin(psi) + north * math.cos(psi)
-    y = -west * math.cos(psi) + north * math.sin(psi)
-    return x, y, north, west
+    y = -west * math.cos(psi) + north  * math.sin(psi)
+    return x,y,north,west
 
 def compute_yaw_offset(x0,y0,yaw0_deg,lat0,lon0,x1,y1,yaw1_deg,lat1,lon1):
     """odom 이동 벡터 vs GPS 전진 벡터로 오프셋(deg) 추정."""
@@ -624,9 +578,9 @@ def compute_yaw_offset(x0,y0,yaw0_deg,lat0,lon0,x1,y1,yaw1_deg,lat1,lon1):
     odom_dy = y1 - y0
     if abs(odom_dx) < 1e-6 and abs(odom_dy) < 1e-6:
         return 0.0
-    yaw_from_odom = math.atan2(odom_dy, odom_dx)  # rad (동 기준)
+    yaw_from_odom = math.atan2(odom_dy, odom_dx)  # rad (동 기준 0°)
     west, north = haversine_xy(lat0, lon0, lat1, lon1)
-    yaw_global  = math.atan2(west, north)         # rad (북 기준)
+    yaw_global  = math.atan2(west, north)         # rad (북 기준 0°)
     return math.degrees(normalize(yaw_global - yaw_from_odom))
 
 def _wrap_deg(a: float) -> float:
@@ -638,47 +592,52 @@ def _wrap_deg(a: float) -> float:
 def control_thread(rate=10.0):
     global insert_dash_flag
     global goal_x, goal_y, INIT_GPS, ctrl_msg, HEADING_CALIBRATED, yaw_offset
+
+    # From Planner Thread, Start
     global global_heading
     global planner_msg, MISSION_ACTIVE, INIT_GPS, REACH_GOAL, REACH_TOL
+    global selected_path_file, ALL_PATHS
+    global DEST_REQUESTED, DEST_LABEL, DEST_TO_PATH 
 
     # ===== CSV 로깅 세팅 =====
     log_path = Path(LOG_PATH)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, mode="a", newline="")
     log_writer = csv.writer(log_file)
-
-    log_headers = [
-        "idx", "ratio",
-        "lat", "lon",
-        "goal_lat", "goal_lon",
-        "dX", "dY",
-        "dx", "dy",
-        "dist_m",
-        "dX_curr", "dY_curr",
-        "dx_curr", "dy_curr",
-        "GO2_X0", "GO2_Y0", "GO2_yaw0",
-        "GO2_X1", "GO2_Y1", "GO2_yaw1",
-        "yaw_offset",
-        "global_heading_deg",
-        "heading_err_rad",
-        "cmd",
-        "quality",
-        "cmd_in_lx", "cmd_in_ly", "cmd_in_az"
-    ]
-
+    log_headers = ["idx",
+            "ratio",
+            "lat","lon",
+            "goal_lat", "goal_lon",
+            "dX", "dY",
+            "dx", "dy",
+            "dist_m",
+            "dX_curr", "dY_curr",
+            "dx_curr","dy_curr",
+            "GO2_X0","GO2_Y0","GO2_yaw0",
+            "GO2_X1","GO2_Y1","GO2_yaw1",
+            "yaw_offset",
+            "global_heading_deg",
+            "heading_err_rad",
+            "cmd",          # "vx|vy|vyaw" 
+            "quality",       # NMEA GGA quality (0/1/2/4/5)
+            "cmd_in_lx","cmd_in_ly","cmd_in_az"]
     if log_path.stat().st_size == 0:
         log_writer.writerow(log_headers)
         log_file.flush()
+        
+        if insert_dash_flag:
+            insert_dash_flag = False
+            log_writer.writerow(['-' for _ in log_headers])
+            log_file.flush()
+            print("[LOG] Added '-' row")
 
-    # NOTE: insert_dash_flag 처리 원본 로직 유지(원본에서는 headers 직후에만 들어가 있었음)
-    if insert_dash_flag:
-        insert_dash_flag = False
-        log_writer.writerow(['-' for _ in log_headers])
-        log_file.flush()
-        print("[LOG] Added '-' row")
+    print_info("Planner", f"start new path: {selected_path_file}")
 
+    path = LinearPath(ALL_PATHS[selected_path_file]['coords'], reach_tol=REACH_TOL)
+    REACH_GOAL = False
+    # From Planner Thread, End
     # new params to control
-    max_vx = 0.8
+    max_vx = 0.8 #0.7
     max_vy = 0.0
     max_vyaw = 45*(math.pi/180)
     Kx = 0.6
@@ -695,240 +654,296 @@ def control_thread(rate=10.0):
     ctrl = PriorityPD()
     print_info("Control", "start control thread")
 
+    # GPS / GO2 초기화 대기
+    wait_gps(timeout=None)
+    wait_go2(timeout=None)
+    lat, lon = get_gps_latlon()
+    x0, y0, yaw0 = get_go2_xy_yawdeg()
+    print_info("Control", f"GPS init lat={lat}, lon={lon}")
+    print_info("Control", f"GO2  init x={x0:.3f}, y={y0:.3f}, yaw(deg)={yaw0:.2f}")
+    INIT_GPS = True
+
+    # yaw angle initialization
+    lat0, lon0 = get_gps_latlon()
+    x0, y0, yaw0 = get_go2_xy_yawdeg()
+    if (lat0 is None) or (lon0 is None):
+        print_info("Init", "GPS not ready; skip initial straight.", "yellow")
+        return
+    
+    ###########################추가한 부분###############################
+
     try:
-        # ====== 실내에서는 GPS가 안 뜰 수 있으므로, 무한 대기 대신 진행 가능한 형태로 변경 ======
-        # GO2는 있어야 로컬 움직임/요 레이트 계산이 의미 있음 → GO2는 기다리되,
-        # GPS는 없으면 초기 직진/헤딩캘리브 부분을 스킵하고 /destination 스위치 로그 테스트는 가능하게 함.
-        wait_go2(timeout=None)
-
-        # GPS는 실내에서 안 뜰 수 있으니 2초만 기다리고 넘어감
-        gps_ok = wait_gps(timeout=2.0)
-
-        lat, lon = get_gps_latlon()
-        x0, y0, yaw0 = get_go2_xy_yawdeg()
-
-        print_info("Control", f"GO2 init x={x0:.3f}, y={y0:.3f}, yaw(deg)={yaw0:.2f}")
-        if gps_ok and (lat is not None) and (lon is not None):
-            print_info("Control", f"GPS init lat={lat}, lon={lon}")
-            INIT_GPS = True
+        goal,idx,R = path.reset_to_nearest(lat0,lon0)
+        if goal is not None:
+            print_info( "Planner", f"reset_to_nearest : idx = {idx}, R={R:.2f}, goal=({goal[0]:.7f}, {goal[1]:.7f})")
         else:
-            print_info("Control", "GPS not ready (indoor). Control loop will idle until GPS is available.", "yellow")
+            print_info("Planner","reset_to_nearest: path done (no goal)", "yellow")
+    
+    except Exception as e:
+        print_info("Planner", f"reset_to_nearest failed: {e}", "red")
 
-        # yaw angle initialization requires GPS; if not, we keep HEADING_CALIBRATED=False and publish pass-through signal
-        if gps_ok:
-            lat0, lon0 = get_gps_latlon()
-        else:
-            lat0, lon0 = None, None
 
-        # start reference for initial straight (only if GPS exists)
-        x0, y0, yaw0 = get_go2_xy_yawdeg()
+    ###########################추가한 부분###############################
 
-        # 초기 path는 전역에서 이미 생성됨. (DestinationSub로 바뀔 수 있음)
-        cur_path = _get_path()
-        if cur_path is None:
-            print_info("Planner", "No initial path object. Check ALL_PATHS/selected_path_file.", "red")
-        else:
-            print_info("Planner", f"start path: {selected_path_file}", "yellow")
+    print_info("Init", f"Initial straight: {INIT_STRAIGHT_DIST:.1f} m @ {INIT_STRAIGHT_V:.2f} m/s", "red")
+    t0 = time.time()
+    yaw_hold = yaw0  # 시작 yaw 유지(선택)
 
-        # 초기 스냅도 GPS 있을 때만
-        if gps_ok and (lat0 is not None) and (lon0 is not None) and (cur_path is not None):
-            try:
-                goal, idx, R = cur_path.reset_to_nearest(lat0, lon0)
-                if goal is not None:
-                    print_info("Planner", f"reset_to_nearest : idx={idx}, R={R:.2f}, goal=({goal[0]:.7f}, {goal[1]:.7f})")
-                else:
-                    print_info("Planner", "reset_to_nearest: path done (no goal)", "yellow")
-            except Exception as e:
-                print_info("Planner", f"reset_to_nearest failed: {e}", "red")
+    # 미션 대기
+    #while not MISSION_ACTIVE:
+    #    time.sleep(0.2)
+    prev_lat, prev_lon = lat0, lon0
+    prev_x, prev_y, prev_yaw = x0, y0, yaw0
+    snap_inited = True
+    MOV_THRESH_M = 16.0
 
-        # 초기 직진은 GPS+헤딩캘리브를 위한 것이므로 GPS 없으면 수행 불가
-        if gps_ok and (lat0 is not None) and (lon0 is not None):
-            print_info("Init", f"Initial straight: {INIT_STRAIGHT_DIST:.1f} m @ {INIT_STRAIGHT_V:.2f} m/s", "red")
-            t0 = time.time()
-            yaw_hold = yaw0
-        else:
-            yaw_hold = yaw0
-
-        prev_lat, prev_lon = (lat0, lon0) if (lat0 is not None and lon0 is not None) else (None, None)
-        prev_x, prev_y, prev_yaw = x0, y0, yaw0
-        snap_inited = True
-        MOV_THRESH_M = 16.0
-
-        period = 1.0 / rate
-
+    period = 1.0 / rate
+    try:
         while True:
+            # ===== 초기 3 m 직진 + yaw_offset 보정 ===== 
             x, y, yaw = get_go2_xy_yawdeg()
             lat, lon = get_gps_latlon()
+            # dx, dy = goal_to_xy(lat0, lon0, lat, lon, global_heading)
+            # print_info("Distance", f"({dx:.2f}, {dy:.2f})", "yellow")
 
-            # GPS 없으면: 경로 전환 테스트는 DestinationSub에서 이미 가능.
-            # control_thread는 안전하게 정지 유지 + /cmd_vel 신호(-10)로 "캘리브 전" 표시만 계속.
-            if (lat is None) or (lon is None):
-                set_cmd(0.0, 0.0, 0.0)
-                time.sleep(period)
-                continue
-
-            # GPS가 생겼으면 INIT_GPS 갱신
-            if not INIT_GPS:
-                INIT_GPS = True
-                print_info("Control", f"GPS became ready: lat={lat}, lon={lon}", "yellow")
-
-            # ===== 초기 3m 직진 + yaw_offset 보정 =====
             if not HEADING_CALIBRATED:
-                yaw_err_deg = _wrap_deg(yaw_hold - yaw)
-                yaw_err_rad = math.radians(yaw_err_deg)
-                vyaw_cmd = INIT_STRAIGHT_KP_YAW * yaw_err_rad
+                yaw_err_deg = _wrap_deg(yaw_hold - yaw)        # deg
+                yaw_err_rad = math.radians(yaw_err_deg)        # rad
+                vyaw_cmd = INIT_STRAIGHT_KP_YAW * yaw_err_rad  # rad/s  
 
-                vyaw_cmd = max(min(vyaw_cmd, 0.6), -0.6)
+                # 클램프
+                vyaw_cmd = max(min(vyaw_cmd, 0.6), -0.6)       # rad/s
                 set_cmd(INIT_STRAIGHT_V, 0.0, vyaw_cmd)
 
-                # 초기 직진 기준점이 없으면 설정
-                # (원본은 lat0/lon0/x0/y0를 그대로 사용했는데, 위에서 GPS 생겼을 때만 의미 있음)
                 if math.hypot(x - x0, y - y0) >= INIT_STRAIGHT_DIST:
                     x1, y1, yaw1 = get_go2_xy_yawdeg()
                     lat1, lon1 = get_gps_latlon()
                     if (lat1 is None) or (lon1 is None):
                         print_info("Init", "GPS lost; skip offset update.", "yellow")
+                    
                     else:
-                        off = compute_yaw_offset(x0, y0, yaw0, lat, lon, x1, y1, yaw1, lat1, lon1)
+
+                        off = compute_yaw_offset(x0,y0,yaw0, lat0,lon0, x1,y1,yaw1, lat1,lon1)
                         yaw_offset = off
                         HEADING_CALIBRATED = True
-                        MISSION_ACTIVE = True
+                        MISSION_ACTIVE= True
                         print_info("Init", f"Initial yaw_offset set to {yaw_offset:.2f} deg")
-
+                        # =======================================
                         set_cmd(0.0, 0.0, 0.0)
+            elif MISSION_ACTIVE: #and (goal_x is not None) and (goal_y is not None):
 
-                time.sleep(period)
-                continue
+#========================== path change =========================
 
-            # ===== 미션/주행 =====
-            if not MISSION_ACTIVE:
-                set_cmd(0.0, 0.0, 0.0)
-                time.sleep(period)
-                continue
+                if DEST_REQUESTED and DEST_LABEL is not None:
+                    DEST_REQUESTED = False
+                    dest = DEST_LABEL.lower()
+                    if dest not in DEST_TO_PATH:
+                        print_info("Planner", f"unknown destination '{dest}' (DEST_TO_PATH에 없음)", "red")
+                    else:
+                        new_path_file = DEST_TO_PATH[dest]
+                        if new_path_file not in ALL_PATHS:
+                            print_info("Planner", f"DEST_TO_PATH['{dest}']={new_path_file} 가 ALL_PATHS에 없음", "red")
+                        else:
+                            selected_path_file = new_path_file
+                            print_info("Planner", f"switch path -> {selected_path_file}", "yellow")
+                            # 새 LinearPath 생성
+                            path = LinearPath(
+                                ALL_PATHS[selected_path_file]['coords'],
+                                reach_tol=REACH_TOL
+                            )
+                            REACH_GOAL = False
 
-            # 현재 path는 전역에서 가져옴 (destination 변경 반영)
-            cur_path = _get_path()
-            if cur_path is None:
-                set_cmd(0.0, 0.0, 0.0)
-                time.sleep(period)
-                continue
+                            # 현재 위치에서 가장 가까운 웨이포인트로 idx 스냅
+                            cur_lat_snap, cur_lon_snap = get_gps_latlon()
+                            if (cur_lat_snap is not None) and (cur_lon_snap is not None):
+                                try:
+                                    goal_snap, idx_snap, R_snap = path.reset_to_nearest(cur_lat_snap, cur_lon_snap)
+                                    if goal_snap is not None:
+                                        print_info(
+                                            "Planner",
+                                            f"reset_to_nearest (dest={dest}): idx={idx_snap}, R={R_snap:.2f}, "
+                                            f"goal=({goal_snap[0]:.7f},{goal_snap[1]:.7f})"
+                                        )
+                                    else:
+                                        print_info("Planner", f"reset_to_nearest: path done for dest={dest}", "yellow")
+                                except Exception as e:
+                                    print_info("Planner", f"reset_to_nearest error for dest={dest}: {e}", "red")
 
-            cur_x, cur_y, cur_yaw = get_go2_xy_yawdeg()
-            cur_lat, cur_lon = get_gps_latlon()
+                cur_x, cur_y, cur_yaw = get_go2_xy_yawdeg()
+                cur_lat, cur_lon = get_gps_latlon()
+                
+                
+                # read current heading
+                _, _, yaw_deg = get_go2_xy_yawdeg()
+                global_heading = math.degrees(
+                    normalize(math.radians(yaw_deg + yaw_offset))
+                )
+                
+                # GPS Filter
+                # if gps_count == 0 :
+                #     lat_prev = lat
+                #     lon_prev = lon
+                #     gps_count = 1
+                # else :
+                #     dX_gps  = EARTH_R * math.radians(lat - lat_prev)
+                #     dY_gps  = - EARTH_R * math.cos(math.radians(lat)) * math.radians(lon - lon_prev)
+                #     if dX_gps*dX_gps + dY_gps*dY_gps > gps_tolSQ :#* gps_count * gps_count :
+                #         lat = lat_prev
+                #         lon = lon_prev
+                #         gps_count += 1
+                #     else :
+                #         lat_prev = lat
+                #         lon_prev = lon
+                #         gps_count = 1
 
-            # read current heading
-            _, _, yaw_deg = get_go2_xy_yawdeg()
-            global_heading = math.degrees(normalize(math.radians(yaw_deg + yaw_offset)))
-
-            # 현재 거리차(디버그)
-            # (원본 코드: lat0, lon0를 초기 기준으로 썼는데, 여기서는 lat0/lon0가 None일 수 있어 guard)
-            if (lat0 is not None) and (lon0 is not None):
+                #현재 거리차 구하기
                 dX_curr  = EARTH_R * math.radians(lat - lat0)
                 dY_curr  = - EARTH_R * math.cos(math.radians(lat)) * math.radians(lon - lon0)
-            else:
-                dX_curr, dY_curr = 0.0, 0.0
+                print_info("distance", f"dX_curr={dX_curr:.6f}, dY_curr={dY_curr:.6f}")
+                dx_curr = cur_x - prev_x
+                dy_curr = cur_y - prev_y
+                print_info("distance", f"dx_curr={dx_curr:.6f}, dy_curr={dy_curr:.6f}")
 
-            dx_curr = cur_x - prev_x
-            dy_curr = cur_y - prev_y
+                # Read goal
+                goal, idx, R = path.update(lat, lon)## _ 가 waypoint 
+                # if reach goal            
+                if goal is None:
+                    REACH_GOAL = True
+                    MISSION_ACTIVE = False
+                    planner_msg = "Path Finished!"
+                    print_info("Planner", planner_msg, "red")
+                    
+                    set_cmd(0.0, 0.0, 0.0)
+                    time.sleep(0.05)
+                    continue  
 
-            # Read goal from path
-            goal, idx, R = cur_path.update(lat, lon)
-            if goal is None:
-                REACH_GOAL = True
-                MISSION_ACTIVE = False
-                planner_msg = "Path Finished!"
-                print_info("Planner", planner_msg, "red")
-                set_cmd(0.0, 0.0, 0.0)
-                time.sleep(0.05)
-                continue
 
-            # yaw_offset calibration (원본 로직 유지)
-            if snap_inited:
-                moved = math.hypot(cur_x - prev_x, cur_y - prev_y)
-                if moved > MOV_THRESH_M and (cur_lat is not None) and (cur_lon is not None) and (prev_lat is not None) and (prev_lon is not None):
-                    yaw_offset_new = compute_yaw_offset(
-                        prev_x, prev_y, prev_yaw, prev_lat, prev_lon,
-                        cur_x,  cur_y,  cur_yaw, cur_lat, cur_lon
-                    )
-                    yaw_offset = 0.9 * yaw_offset + 0.1 * yaw_offset_new
-                    planner_msg = f"update yaw_offset:{yaw_offset:.2f} yaw_off_new:{yaw_offset_new:.2f}"
-                    print_info("Planner", planner_msg)
+                print_info("goal",f"goal[0]={goal[0]:.2f},goal[1]={goal[1]:.2f},idx={idx}")
 
+                # yaw_offset calibration
+                if snap_inited:
+                    moved = math.hypot(cur_x - prev_x, cur_y - prev_y)
+                    if moved > MOV_THRESH_M and (cur_lat is not None) and (cur_lon is not None):
+                        yaw_offset_new = compute_yaw_offset(
+                            prev_x, prev_y, prev_yaw, prev_lat, prev_lon,
+                            cur_x,  cur_y,  cur_yaw, cur_lat, cur_lon
+                        )
+                        # yaw_offset update 
+                        yaw_offset = 0.9 * yaw_offset + 0.1 * yaw_offset_new
+                        planner_msg = f"update yaw_offset:{yaw_offset:.2f} yaw_off_new:{yaw_offset_new:.2f}"
+                        print_info("Planner", planner_msg)
+
+                        prev_x, prev_y, prev_yaw = cur_x, cur_y, cur_yaw
+                        prev_lat, prev_lon = cur_lat, cur_lon
+                else:
                     prev_x, prev_y, prev_yaw = cur_x, cur_y, cur_yaw
                     prev_lat, prev_lon = cur_lat, cur_lon
+                    snap_inited = True
+
+
+                # Calcuate error
+                dX  = EARTH_R * math.radians(goal[0] - lat)
+                dY  = - EARTH_R * math.cos(math.radians(lat)) * math.radians(goal[1] - lon)
+                dth = math.radians(global_heading)
+                print_info("dX,dY", f"dX={dX:.2f}, dY={dY:.2f}, global_heading={global_heading:.2f}")
+
+                # to robot frame
+                dx = math.cos(dth) * dX + math.sin(dth) * dY
+                dy = -math.sin(dth) * dX + math.cos(dth) * dY
+                heading_err = math.atan2(dy,dx)
+                print_info("dx,dy", f"dx={dx:.2f}, dy={dy:.2f}, heading_err={math.degrees(heading_err):.2f}")
+                # dx,dy,dX,dY = goal_to_xy(lat, lon, goal[0], goal[1], global_heading)
+                # heading_err = math.atan2(dy,dx) 
+                # print_info("ddx,ddy", f"dx={dx:.6f}, dy={dy:.6f}, heading_err={math.degrees(heading_err):.2f}")
+                # print_info("dX,dY", f"dX={dX:.6f}, dY={dY:.6f}, heading_err={math.degrees(heading_err):.2f}")
+                 
+                set_err(dx,dy)
+                
+                # vx = Kx * dx
+                vy = Ky * dy      
+                #vy = 0    
+                vyaw = Kw * heading_err
+                if vyaw < -max_vyaw :
+                    vyaw = -max_vyaw
+                elif vyaw > max_vyaw :
+                    vyaw = max_vyaw
+                # ctrl_msg = f"Init_Move({vx:.2f}, {vy:.2f}, {vyaw:.2f})"
+
+                if math.fabs(heading_err) > heading_margin :
+                    vx = 0
+                else:
+                    # 곡률 기반 속도
+                    #vx = max_vx * R
+                # vyaw 기반 속도
+                    vx = max_vx * (1 - math.fabs(vyaw)/max_vyaw)
+                    '''
+                    # 둘 중 최소값
+                    if max_vx * R < vx :
+                        vx = max_vx * R
+                    # 둘 다 고려
+                    vx = max_vx * (1 - math.abs(vyaw)/max_vyaw) * R
+                    '''
+                # if vx < -max_vx :
+                #     vx = -max_vx
+                # elif vx > max_vx :
+                #     vx = max_vx
+                # if vy < -max_vy :
+                #     vy = -max_vy
+                # elif vy > max_vy :
+                #     vy = max_vy
+
+                            # ===== CSV 로깅 =====
+                try:
+                    # 거리(동-북 평면 오프셋) 크기
+                    dist_m = math.hypot(dX, dY)
+
+                    q, _hd, _carr = get_rtk_state()  
+                    q_val = "" if q is None else int(q)
+                    cmd_str = f"{vx:.3f}|{vy:.3f}|{vyaw:.3f}"
+
+                    # dwa에서의 vx,vy,vyaw값 추출
+                    cmd_in_lx, cmd_in_ly, cmd_in_az= get_cmd_in()
+                    # goal은 (위도, 경도) 순서로 저장
+                    log_writer.writerow([
+                        int(idx) if idx is not None else "",
+                        float(R),
+                        float(lat), float(lon),
+                        float(goal[0]) if goal is not None else "",
+                        float(goal[1]) if goal is not None else "",
+                        float(dX), float(dY),
+                        float(dx), float(dy),
+                        float(dist_m),
+                        float(dX_curr), float(dY_curr),
+                        float(dx_curr),float(dy_curr),
+                        float(prev_x),float(prev_y),float(prev_yaw),
+                        float(cur_x),float(cur_y),float(cur_yaw),
+                        float(yaw_offset),
+                        float(global_heading),
+                        float(heading_err),
+                        cmd_str,
+                        q_val,
+                        "" if cmd_in_lx is None else float(cmd_in_lx),
+                        "" if cmd_in_ly is None else float(cmd_in_ly),
+                        "" if cmd_in_az is None else float(cmd_in_az),
+                    ])
+                    log_file.flush()
+                except Exception as e:
+                    pass
+
+                # Send command
+                ctrl_msg = f"Move({vx:.2f}, {vy:.2f}, {vyaw:.2f})"
+                print_info("Control", ctrl_msg)
+                set_cmd(vx, vy, vyaw)  # /cmd 퍼블리시 공유값 갱신
+                # set_cmd(0.0, 0.0, 0.0)
+                # set_cmd(0.8, vy, vyaw)
             else:
-                prev_x, prev_y, prev_yaw = cur_x, cur_y, cur_yaw
-                prev_lat, prev_lon = cur_lat, cur_lon
-                snap_inited = True
-
-            # Calculate error (원본 로직 유지)
-            dX  = EARTH_R * math.radians(goal[0] - lat)
-            dY  = - EARTH_R * math.cos(math.radians(lat)) * math.radians(goal[1] - lon)
-            dth = math.radians(global_heading)
-
-            dx = math.cos(dth) * dX + math.sin(dth) * dY
-            dy = -math.sin(dth) * dX + math.cos(dth) * dY
-            heading_err = math.atan2(dy, dx)
-
-            set_err(dx, dy)
-
-            vy = Ky * dy
-            vyaw = Kw * heading_err
-            if vyaw < -max_vyaw:
-                vyaw = -max_vyaw
-            elif vyaw > max_vyaw:
-                vyaw = max_vyaw
-
-            if math.fabs(heading_err) > heading_margin:
-                vx = 0.0
-            else:
-                vx = max_vx * (1 - math.fabs(vyaw)/max_vyaw)
-
-            # ===== CSV 로깅 (원본 유지) =====
-            try:
-                dist_m = math.hypot(dX, dY)
-                q, _hd, _carr = get_rtk_state()
-                q_val = "" if q is None else int(q)
-                cmd_str = f"{vx:.3f}|{vy:.3f}|{vyaw:.3f}"
-
-                cmd_in_lx, cmd_in_ly, cmd_in_az = get_cmd_in()
-
-                log_writer.writerow([
-                    int(idx) if idx is not None else "",
-                    float(R),
-                    float(lat), float(lon),
-                    float(goal[0]) if goal is not None else "",
-                    float(goal[1]) if goal is not None else "",
-                    float(dX), float(dY),
-                    float(dx), float(dy),
-                    float(dist_m),
-                    float(dX_curr), float(dY_curr),
-                    float(dx_curr), float(dy_curr),
-                    float(prev_x), float(prev_y), float(prev_yaw),
-                    float(cur_x), float(cur_y), float(cur_yaw),
-                    float(yaw_offset),
-                    float(global_heading),
-                    float(heading_err),
-                    cmd_str,
-                    q_val,
-                    "" if cmd_in_lx is None else float(cmd_in_lx),
-                    "" if cmd_in_ly is None else float(cmd_in_ly),
-                    "" if cmd_in_az is None else float(cmd_in_az),
-                ])
-                log_file.flush()
-            except Exception:
-                pass
-
-            ctrl_msg = f"Move({vx:.2f}, {vy:.2f}, {vyaw:.2f})"
-            print_info("Control", ctrl_msg)
-            set_cmd(vx, vy, vyaw)
-
+                set_cmd(0.0, 0.0, 0.0)
             time.sleep(period)
 
     finally:
         try:
             log_file.close()
-        except Exception:
+        except: 
             pass
 
 # =========================
@@ -936,10 +951,12 @@ def control_thread(rate=10.0):
 # =========================
 def sensor_thread(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, cmd_rate=CMD_RATE_HZ):
     start_ros_subscribers(go2_topic=go2_topic, cmd_topic=cmd_topic, pub_rate=cmd_rate)
+
     start_gps_io(SERIAL_PORT, SERIAL_BAUD)
 
     threading.Thread(target=control_thread, args=(10.0,), daemon=True).start()
     threading.Thread(target=key_listener, daemon=True).start()
+    #threading.Thread(target=planner_thread, args=(1.0,), daemon=True).start()
 
 # =========================
 # main
@@ -949,13 +966,12 @@ def main():
     print_info("Server", "starting threads")
     sensor_thread(go2_topic=GO2_TOPIC, cmd_topic=CMD_TOPIC, cmd_rate=CMD_RATE_HZ)
 
-    # 실내에서는 GPS ready가 안 될 수 있으므로, 미션 활성은 GO2만 준비되면 켜도록 완화
-    if wait_go2(timeout=60.0):
-        print_info("Server", "GO2 ready. Activating mission in 2s…")
+    if wait_gps(timeout=60.0) and wait_go2(timeout=60.0):
+        print_info("Server", "Sensors ready. Activating mission in 2s…")
         time.sleep(2.0)
         MISSION_ACTIVE = True
     else:
-        print_info("Server", "GO2 not ready. Mission inactive.", "yellow")
+        print_info("Server", "Sensors not ready. Mission inactive.", "yellow")
 
     try:
         while True:
@@ -964,7 +980,6 @@ def main():
             yaw_rad = math.radians(yaw)
             err_dx, err_dy = get_err()
             vx, vy, vyaw = get_cmd()
-
             print_info("DBG", f"err(dx,dy)=({err_dx:.2f},{err_dy:.2f}) | "
                             f"cmd(vx,vy,vyaw)=({vx:.2f},{vy:.2f},{vyaw:.2f}) | "
                             f"yaw(deg)={yaw:.3f}")
@@ -973,16 +988,14 @@ def main():
                 q, hd, carr = get_rtk_state()
                 rtk_str = f"RTK: carrSoln={carr}({_carr_to_str(carr)}), quality={q}({_q_to_str(q)}), HDOP={hd}"
                 # print_info("GPS", f"lat={lat:.7f}, lon={lon:.7f} | {rtk_str}")
-            else:
-                print_info("GPS", "lat/lon = None (indoor or not ready)", "yellow")
-
             print_info("GO2", f"x={x:.3f}, y={y:.3f}, yaw={yaw_rad:.2f}")
-            print_info("Path", f"selected_path_file={selected_path_file}", "yellow")
             print_info("---------------------------loop------------------------------")
 
             time.sleep(2.0)
     except KeyboardInterrupt:
         print_info("Server", "Stopped.")
 
+
 if __name__ == "__main__":
     main()
+

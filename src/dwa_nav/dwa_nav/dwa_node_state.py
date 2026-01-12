@@ -161,7 +161,7 @@ class DWACommandNode(Node):
         self.sub_dxdy   = self.create_subscription(Point, "/dxdy", self._cb_dxdy, 10)
         self.sub_extcmd = self.create_subscription(Twist, "/cmd_vel", self._cb_cmd_vel, 10)
 
-        self.sub_state = self.create_subscription(String, self.state_topic, self._cb_state, 10)
+        self.sub_state = self.create_subscription(String, "/state", self._cb_state, 10)
 
         self.timer = self.create_timer(self.dt, self._on_timer)
 

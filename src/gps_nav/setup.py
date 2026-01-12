@@ -37,6 +37,8 @@ setup(
             # ros2 run gps_nav planner_server
             #  → gps_nav/planner_server11.py 의 main() 실행
             'planner_server = gps_nav.planner_server11:main',
+            'planner_server11_pathchange = gps_nav.planner_server11_pathchange:main',
+
             # 나중에 DWA 노드도 패키지에 넣으면 여기 추가:
             # 'dwa_node = gps_nav.dwa_command_node:main',
         ],

@@ -33,6 +33,7 @@ setup(
         'console_scripts': [
             # ros2 run dwa_nav dwa_node
             'dwa_node = dwa_nav.dwa_node:main',
+            'dwa_node_state = dwa_nav.dwa_node_state:main'
         ],
     },
 )
