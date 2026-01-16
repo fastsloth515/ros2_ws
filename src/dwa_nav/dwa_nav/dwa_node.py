@@ -49,6 +49,7 @@ class DWACommandNode(Node):
         self.declare_parameter("w_goal", 1.0)     # 0.8, 목표(dx,dy) 비중
         self.declare_parameter("w_clear", 1.2)    # 장애물 거리/클리어런스 비중
         self.declare_parameter("y_bias", -0.5)     # 자꾸 왼쪽으로 가서///
+        self.declare_parameter("tau", 0.1)                 # 이전 값, 현재값 50%씩
         # -------------------- 사람(occ=88) 정지 거리 --------------------
         self.declare_parameter("person_stop_dist", 1.2)  # [m], 이 거리 안에 사람(88)이 있으면 정지
         self.declare_parameter("person_stop_y_width", 0.5)
@@ -101,7 +102,14 @@ class DWACommandNode(Node):
         self.y_bias  = float(self.get_parameter("y_bias").value)
         self.person_stop_dist = float(self.get_parameter("person_stop_dist").value)
         self.person_stop_y_width = float(self.get_parameter("person_stop_y_width").value)
-
+        
+        # filter
+        self.tau = float(self.get_parameter("tau").value)
+        self.dx_raw = 0.0
+        self.dy_raw = 0.0
+        self.dx_f = 0.0
+        self.dy_f = 0.0
+        self._dxdy_inited = False
 
         self.ahead_m      = float(self.get_parameter("ahead_m").value)
         self.half_width_m = float(self.get_parameter("half_width_m").value)
@@ -167,7 +175,8 @@ class DWACommandNode(Node):
         self._log_writer = csv.writer(self._log_fp)
         self._log_writer.writerow([
             "t",
-            "dx_gps","dy_gps",        
+            "dx_raw","dy_raw",
+            "dx_f","dy_f",        
             "dx_dwa","dy_dwa",          
             "vx_raw","vyaw_cmd",       
             "kv","kyaw",
@@ -185,8 +194,10 @@ class DWACommandNode(Node):
 
     # ------------------------- 콜백 -------------------------
     def _cb_dxdy(self, msg: Point):
-        self.dx = float(msg.x)
-        self.dy = float(msg.y)
+        self.dx_raw = float(msg.x)
+        self.dy_raw = float(msg.y)
+        self.dx = self.dx_raw
+        self.dy = self.dy_raw
 
     def _cb_cmd_vel(self, msg: Twist):
         self._ext_cmd = msg
@@ -261,7 +272,8 @@ class DWACommandNode(Node):
         try:
             self._log_writer.writerow([
                 float(t_now),
-                float(self.dx), float(self.dy),
+                float(self.dx_raw),float(self.dy_raw),
+                float(self.dx_f), float(self.dy_f),
                 float('nan'), float('nan'),
                 0.0, 0.0,
                 float(self.kv), float(self.kyaw),
@@ -279,13 +291,31 @@ class DWACommandNode(Node):
     def _on_timer(self):
         t_now = time.time()
 
-        # 1) /cmd_vel 패스스루 : linear.z = -100
+        dt = max(1e-3, t_now - self._t_prev)
+        self._t_prev = t_now
+
+        if not self._dxdy_inited:
+            self.dx_f = self.dx_raw
+            self.dy_f = self.dy_raw
+            self._dxdy_inited = True
+        else:
+            tau = max(1e-3, self.tau)
+            alpha = dt / (tau + dt)  # EMA 계수
+
+            self.dx_f += alpha * (self.dx_raw - self.dx_f)
+            self.dy_f += alpha * (self.dy_raw - self.dy_f)
+
+        # 이후부터는 self.dx/self.dy 대신 아래 값을 사용
+        dx_used = self.dx_f
+        dy_used = self.dy_f
+
+        # 1) /cmd_vel  : linear.z = -100
         if self._ext_cmd is not None:
             if abs(self._ext_cmd.linear.z - (-100.0)) < 1e-6:
                 self._publish_stop("final_goal_stop_linear_z")
                 return
 
-            # 패스스루 모드 트리거 : linear.z = -10
+            # 직진 trigger : linear.z = -10
             if abs(self._ext_cmd.linear.z - (-10.0)) < 1e-9:
                 self.pub_cmd.publish(self._ext_cmd)
                 if (t_now - self._last_log_t) > 0.3:
@@ -311,8 +341,7 @@ class DWACommandNode(Node):
         if self._dist is None:
             return 
 
-        dt = max(1e-3, t_now - self._t_prev)
-        self._t_prev = t_now
+
 
         res, W, H, x0, y0 = self._info
 
@@ -365,7 +394,7 @@ class DWACommandNode(Node):
 
         for i in range(i_start, i_end, step):
             y = i * res + y0
-            desired_y = self.dy + self.y_bias
+            desired_y = dy_used + self.y_bias
             base_y = (y - desired_y) ** 2
             # base_y = (y - self.dy) ** 2
             for j in range(j_start, j_end, step):
@@ -378,7 +407,7 @@ class DWACommandNode(Node):
                     pass
 
                 x = j * res + x0
-                base = (x - self.dx) ** 2 + base_y
+                base = (x - dx_used) ** 2 + base_y
 
                 # soft clearance
                 d = float(self._dist[i, j])
@@ -395,9 +424,9 @@ class DWACommandNode(Node):
                     best_occ = occ
 
 
-        # if best is None:
-        #     self._publish_stop("no_cell_in_window")
-        #     return 
+        if best is None:
+            self._publish_stop("no_cell_in_window")
+            return 
 
         # # 최소 코스트가 장애물인 셀이면 정지
         # if best_occ is not None and best_occ >= 100:
@@ -460,7 +489,8 @@ class DWACommandNode(Node):
         try:
             self._log_writer.writerow([
                 float(t_now),
-                float(self.dx), float(self.dy),     
+                float(self.dx_raw), float(self.dy_raw), 
+                float(self.dx_f),float(self.dy_f),    
                 float(dx_dwa), float(dy_dwa),       
                 float(vx_raw), float(wz_cmd),   
                 float(self.kv), float(self.kyaw),    
